@@ -335,6 +335,110 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
             </button>
           </div>
         </div>
+
+        {/* Streaming Connection Details */}
+        <StreamingConnectionDetails />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Streaming Connection Details Component
+ * Shows connection info for OBS/BUTT
+ */
+function StreamingConnectionDetails() {
+  const [connectionDetails, setConnectionDetails] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchConnectionDetails();
+  }, []);
+
+  const fetchConnectionDetails = async () => {
+    try {
+      const response = await fetch('/api/stream-config');
+      if (response.ok) {
+        const data = await response.json();
+        setConnectionDetails(data);
+      }
+    } catch (error) {
+      console.error('Error fetching connection details:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return null;
+  }
+
+  if (!connectionDetails) {
+    return null;
+  }
+
+  return (
+    <div className="mt-8 pt-6 border-t border-gray-200">
+      <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        Streaming Connection Details
+      </h2>
+      <p className="text-sm text-gray-600 mb-4">
+        Use these settings in your streaming software (OBS, BUTT, etc.) to broadcast live:
+      </p>
+
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+        <div className="space-y-3">
+          <div className="flex">
+            <span className="text-sm font-medium text-gray-700 w-32">Server/Host:</span>
+            <span className="text-sm text-gray-900 font-mono">{connectionDetails.host}</span>
+          </div>
+          <div className="flex">
+            <span className="text-sm font-medium text-gray-700 w-32">Port:</span>
+            <span className="text-sm text-gray-900 font-mono">{connectionDetails.port}</span>
+          </div>
+          <div className="flex">
+            <span className="text-sm font-medium text-gray-700 w-32">Mount Point:</span>
+            <span className="text-sm text-gray-900 font-mono">{connectionDetails.mount}</span>
+          </div>
+          <div className="flex">
+            <span className="text-sm font-medium text-gray-700 w-32">Format:</span>
+            <span className="text-sm text-gray-900">{connectionDetails.format}</span>
+          </div>
+          <div className="flex">
+            <span className="text-sm font-medium text-gray-700 w-32">Password:</span>
+            <span className="text-sm text-gray-600 italic">
+              Ask the system admin for the source password configured in Icecast
+            </span>
+          </div>
+        </div>
+
+        {!connectionDetails.isConfigured && (
+          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <p className="text-sm text-yellow-800">
+              ⚠️ Streaming server not fully configured. Contact your system administrator.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <details className="text-sm">
+          <summary className="cursor-pointer text-blue-600 hover:text-blue-700 font-medium">
+            Show OBS Studio Setup Instructions
+          </summary>
+          <div className="mt-3 p-4 bg-gray-50 rounded-lg space-y-2 text-gray-700">
+            <p className="font-medium">OBS Studio Configuration:</p>
+            <ol className="list-decimal list-inside space-y-1 ml-2">
+              <li>Open OBS Studio</li>
+              <li>Go to Settings → Stream</li>
+              <li>Service: Custom</li>
+              <li>Server: <code className="bg-gray-200 px-1 rounded">http://{connectionDetails.host}:{connectionDetails.port}{connectionDetails.mount}</code></li>
+              <li>Stream Key: (leave empty or use source password)</li>
+              <li>Click Apply and OK</li>
+              <li>Click "Start Streaming" when ready to go live</li>
+            </ol>
+          </div>
+        </details>
       </div>
     </div>
   );
