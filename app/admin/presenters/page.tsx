@@ -1,6 +1,12 @@
 import { redirect } from "next/navigation";
 import { getCurrentAdmin } from "@/lib/server-auth";
 import PresentersList from "./PresentersList";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Presenters Management",
+  description: "Manage presenters and scholars for Al-Manhaj Radio.",
+};
 
 /**
  * Presenters management page (Admin only)

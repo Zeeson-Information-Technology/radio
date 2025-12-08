@@ -1,10 +1,21 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Link from "next/link";
+import Navigation from "./components/Navigation";
 
 export const metadata: Metadata = {
-  title: "Islamic Radio - Live Lectures",
-  description: "Listen to live Islamic lectures and recorded content",
+  title: {
+    default: "Al-Manhaj Radio - Authentic Islamic Knowledge",
+    template: "%s | Al-Manhaj Radio"
+  },
+  description: "Listen to authentic Islamic lectures following the prophetic methodology. Live sessions with knowledgeable scholars and 24/7 Islamic content.",
+  keywords: "Al-Manhaj, Al-Manhaj Radio, Islamic lectures, Quran recitation, Sunnah, authentic Islam, Islamic knowledge, manhaj, Salaf",
+  authors: [{ name: "Al-Manhaj Radio" }],
+  openGraph: {
+    title: "Al-Manhaj Radio - Authentic Islamic Knowledge",
+    description: "Listen to authentic Islamic lectures following the prophetic methodology.",
+    type: "website",
+    locale: "en_US",
+  },
 };
 
 export default function RootLayout({
@@ -13,35 +24,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-gray-50 antialiased">
-        <nav className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex space-x-8">
-                <Link
-                  href="/"
-                  className="inline-flex items-center px-1 pt-1 text-gray-900 hover:text-green-600 transition-colors"
-                >
-                  Home
-                </Link>
-                <Link
-                  href="/radio"
-                  className="inline-flex items-center px-1 pt-1 text-gray-900 hover:text-green-600 transition-colors"
-                >
-                  Radio
-                </Link>
-                <Link
-                  href="/admin/login"
-                  className="inline-flex items-center px-1 pt-1 text-gray-900 hover:text-green-600 transition-colors"
-                >
-                  Admin
-                </Link>
-              </div>
-            </div>
-          </div>
-        </nav>
-        <main>{children}</main>
+    <html lang="en" className="scroll-smooth">
+      <body className="min-h-screen bg-white antialiased" suppressHydrationWarning>
+        <Navigation />
+        
+        {/* Add padding to account for fixed navbar */}
+        <div className="pt-16">
+          <main>{children}</main>
+        </div>
       </body>
     </html>
   );

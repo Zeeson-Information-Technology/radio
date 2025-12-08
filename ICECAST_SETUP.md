@@ -249,8 +249,8 @@ Add this inside the `<icecast>` tag in `/etc/icecast2/icecast.xml`:
     <fallback-override>1</fallback-override>
     <fallback-when-full>1</fallback-when-full>
     <public>1</public>
-    <stream-name>Islamic Radio</stream-name>
-    <stream-description>Islamic lectures and Quran recitation</stream-description>
+    <stream-name>Al-Manhaj Radio</stream-name>
+    <stream-description>Islamic lectures and Quran recitation
     <stream-url>https://radio.example.com</stream-url>
     <genre>Religious</genre>
     <bitrate>128</bitrate>

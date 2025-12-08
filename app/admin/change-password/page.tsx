@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentAdmin } from "@/lib/server-auth";
+import { serializeAdmin } from "@/lib/utils/serialize-admin";
 import ChangePasswordForm from "./ChangePasswordForm";
 
 /**
@@ -16,5 +17,5 @@ export default async function ChangePasswordPage() {
   }
 
   // Render change password form
-  return <ChangePasswordForm admin={admin} />;
+  return <ChangePasswordForm admin={serializeAdmin(admin)} />;
 }

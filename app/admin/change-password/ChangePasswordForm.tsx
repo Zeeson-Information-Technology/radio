@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { IAdminUser } from "@/lib/models/AdminUser";
+import { SerializedAdmin } from "@/lib/types/admin";
 
 interface ChangePasswordFormProps {
-  admin: IAdminUser;
+  admin: SerializedAdmin;
 }
 
 export default function ChangePasswordForm({ admin }: ChangePasswordFormProps) {

@@ -1,4 +1,4 @@
-# Islamic Online Radio
+# Al-Manhaj Radio
 
 A simple online Islamic radio web application built with Next.js, allowing admins to broadcast live lectures and listeners to tune in.
 

@@ -1,8 +1,24 @@
 @import "tailwindcss";
 
+/* Traditional Islamic Design System */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Traditional Islamic Colors */
+  --islamic-green-deep: #047857;
+  --islamic-green-medium: #059669;
+  --islamic-green-light: #10B981;
+  --islamic-gold: #D4AF37;
+  --islamic-gold-dark: #C9A227;
+  --islamic-gold-light: #E5C158;
+  
+  /* Neutral Traditional Colors */
+  --cream: #FEFCF3;
+  --beige-light: #F5F1E8;
+  --charcoal: #1F2937;
+  --charcoal-medium: #374151;
+  
+  /* Base Colors */
+  --background: #FAFAF9;
+  --foreground: #1F2937;
 }
 
 @theme inline {
@@ -12,15 +28,40 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Traditional Islamic Geometric Pattern Background */
+.islamic-pattern-bg {
+  background-image: 
+    repeating-linear-gradient(45deg, transparent, transparent 35px, rgba(4, 120, 87, 0.02) 35px, rgba(4, 120, 87, 0.02) 70px),
+    repeating-linear-gradient(-45deg, transparent, transparent 35px, rgba(212, 175, 55, 0.02) 35px, rgba(212, 175, 55, 0.02) 70px);
+}
+
+/* Gold Arabic Text Styling */
+.arabic-gold {
+  color: var(--islamic-gold);
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Traditional Border Decoration */
+.islamic-border {
+  border: 2px solid var(--islamic-green-deep);
+  position: relative;
+}
+
+.islamic-border::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  border: 1px solid var(--islamic-gold);
+  opacity: 0.5;
+  pointer-events: none;
 }

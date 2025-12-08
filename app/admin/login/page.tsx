@@ -1,6 +1,12 @@
 import { redirect } from "next/navigation";
 import { getCurrentAdmin } from "@/lib/server-auth";
 import LoginForm from "./LoginForm";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Admin Login",
+  description: "Admin portal for Al-Manhaj Radio broadcasting management.",
+};
 
 /**
  * Admin login page

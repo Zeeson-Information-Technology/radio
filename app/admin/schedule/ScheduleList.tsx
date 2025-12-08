@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { IAdminUser } from "@/lib/models/AdminUser";
+import { SerializedAdmin } from "@/lib/types/admin";
 
 interface ScheduleItem {
   _id: string;
@@ -15,7 +15,7 @@ interface ScheduleItem {
 }
 
 interface ScheduleListProps {
-  admin: IAdminUser;
+  admin: SerializedAdmin;
 }
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { IAdminUser } from "@/lib/models/AdminUser";
+import { SerializedAdmin } from "@/lib/types/admin";
 
 interface LiveControlPanelProps {
-  admin: IAdminUser;
+  admin: SerializedAdmin;
 }
 
 interface LiveState {

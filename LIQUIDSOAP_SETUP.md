@@ -151,7 +151,7 @@ icecast_host = "127.0.0.1"
 icecast_port = 8000
 icecast_password = "RADIO_SOURCE_PASSWORD"  # Replace with your password
 icecast_mount = "stream"
-icecast_name = "Islamic Radio"
+icecast_name = "Al-Manhaj Radio"
 icecast_description = "Islamic lectures and Quran recitation"
 icecast_genre = "Religious"
 icecast_url = "https://radio.example.com"
@@ -190,7 +190,7 @@ radio = normalize(radio, gain_max=3.0, gain_min=-3.0)
 radio = map_metadata(
     fun (m) -> 
         if m["source"] == "live" then
-            [("title", "Live Lecture"), ("artist", "Islamic Radio")]
+            [("title", "Live Lecture"), ("artist", "Al-Manhaj Radio")]
         else
             m
         end,
@@ -219,7 +219,7 @@ end
 radio = on_track(radio)
 
 # Keep script running
-log("Islamic Radio Liquidsoap started successfully")
+log("Al-Manhaj Radio Liquidsoap started successfully")
 ```
 
 ### Important Configuration
@@ -255,7 +255,7 @@ sudo liquidsoap /opt/radio/radio.liq
 
 You should see:
 ```
-Islamic Radio Liquidsoap started successfully
+Al-Manhaj Radio Liquidsoap started successfully
 ```
 
 Press `Ctrl+C` to stop.
@@ -406,7 +406,7 @@ sudo tail -f /var/radio/logs/liquidsoap.log
 
 You should see:
 ```
-Now playing: Live Lecture - Islamic Radio
+Now playing: Live Lecture - Al-Manhaj Radio
 ```
 
 ### Verify Live is Active

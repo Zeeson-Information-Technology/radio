@@ -1,6 +1,13 @@
 import { redirect } from "next/navigation";
 import { getCurrentAdmin } from "@/lib/server-auth";
+import { serializeAdmin } from "@/lib/utils/serialize-admin";
 import LiveControlPanel from "./LiveControlPanel";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Live Control",
+  description: "Manage live broadcasts and streaming for Al-Manhaj Radio.",
+};
 
 /**
  * Protected admin live control page
@@ -16,5 +23,5 @@ export default async function AdminLivePage() {
   }
 
   // Authenticated, render the live control panel
-  return <LiveControlPanel admin={admin} />;
+  return <LiveControlPanel admin={serializeAdmin(admin)} />;
 }

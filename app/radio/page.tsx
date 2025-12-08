@@ -1,4 +1,10 @@
 import RadioPlayer from "./RadioPlayer";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Listen Live",
+  description: "Listen to live Islamic lectures and Quran recitations following the way of the Salaf.",
+};
 
 /**
  * Public Radio Page
