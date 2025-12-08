@@ -114,6 +114,12 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
           <p className="text-sm text-gray-600">
             Update scheduled lecture time
           </p>
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              ⏰ <strong>Note:</strong> Enter times in Nigeria time (West Africa Time - WAT, UTC+1).
+              International listeners will see times automatically converted to their timezone.
+            </p>
+          </div>
         </div>
 
         {/* Error Message */}

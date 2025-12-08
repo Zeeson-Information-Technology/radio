@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { convertWATToLocal, isUserInNigeria, getUserTimezoneDisplay } from "@/lib/timezone";
 
 interface LiveData {
   ok: boolean;
@@ -99,6 +100,9 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
     const daysUntil = (item.dayOfWeek - today + 7) % 7;
     return daysUntil > 0 && daysUntil <= 3; // Next 3 days
   });
+
+  // Check if user is in Nigeria
+  const userInNigeria = isUserInNigeria();
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-16">
@@ -207,6 +211,17 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
           </p>
         </div>
 
+        {/* Timezone Indicator */}
+        {!userInNigeria && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <p className="text-center text-xs text-gray-600">
+              ⏰ Times shown in your timezone: <span className="font-medium">{getUserTimezoneDisplay()}</span>
+              <br />
+              <span className="text-gray-500">Schedule times are in Nigeria time (WAT, UTC+1)</span>
+            </p>
+          </div>
+        )}
+
         {/* Today's Schedule */}
         {todaySchedule.length > 0 && (
           <div className="mt-8 pt-8 border-t border-gray-200">
@@ -214,29 +229,37 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
               Today's Schedule
             </h3>
             <div className="space-y-3">
-              {todaySchedule.map((item) => (
-                <div
-                  key={item._id}
-                  className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg"
-                >
-                  <div className="flex-shrink-0">
-                    <div className="text-lg font-semibold text-green-600">
-                      {item.startTime}
+              {todaySchedule.map((item) => {
+                const localTime = convertWATToLocal(item.startTime);
+                return (
+                  <div
+                    key={item._id}
+                    className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg"
+                  >
+                    <div className="flex-shrink-0">
+                      <div className="text-lg font-semibold text-green-600">
+                        {userInNigeria ? item.startTime : localTime}
+                      </div>
+                      {!userInNigeria && (
+                        <div className="text-xs text-gray-500">
+                          {item.startTime} WAT
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500">
+                        {item.durationMinutes} min
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      {item.durationMinutes} min
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">
+                        {item.topic}
+                      </h4>
+                      <p className="text-sm text-gray-600">
+                        {item.lecturer}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900">
-                      {item.topic}
-                    </h4>
-                    <p className="text-sm text-gray-600">
-                      {item.lecturer}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -260,32 +283,40 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
               Upcoming Schedule
             </h3>
             <div className="space-y-3">
-              {upcomingSchedule.map((item) => (
-                <div
-                  key={item._id}
-                  className="flex items-start gap-4 p-4 bg-blue-50 rounded-lg"
-                >
-                  <div className="flex-shrink-0">
-                    <div className="text-sm font-semibold text-blue-600">
-                      {DAYS[item.dayOfWeek]}
+              {upcomingSchedule.map((item) => {
+                const localTime = convertWATToLocal(item.startTime);
+                return (
+                  <div
+                    key={item._id}
+                    className="flex items-start gap-4 p-4 bg-blue-50 rounded-lg"
+                  >
+                    <div className="flex-shrink-0">
+                      <div className="text-sm font-semibold text-blue-600">
+                        {DAYS[item.dayOfWeek]}
+                      </div>
+                      <div className="text-lg font-semibold text-gray-900">
+                        {userInNigeria ? item.startTime : localTime}
+                      </div>
+                      {!userInNigeria && (
+                        <div className="text-xs text-gray-500">
+                          {item.startTime} WAT
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500">
+                        {item.durationMinutes} min
+                      </div>
                     </div>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {item.startTime}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {item.durationMinutes} min
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">
+                        {item.topic}
+                      </h4>
+                      <p className="text-sm text-gray-600">
+                        {item.lecturer}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900">
-                      {item.topic}
-                    </h4>
-                    <p className="text-sm text-gray-600">
-                      {item.lecturer}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
