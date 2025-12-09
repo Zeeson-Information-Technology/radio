@@ -3,11 +3,13 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
+import { getTimezoneDisplay } from "@/lib/timezones";
 
 interface ScheduleItem {
   _id: string;
   dayOfWeek: number;
   startTime: string;
+  timezone: string;
   durationMinutes: number;
   lecturer: string;
   topic: string;
@@ -133,7 +135,7 @@ export default function ScheduleList({ admin }: ScheduleListProps) {
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Day</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Start Time</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Time & Timezone</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Duration</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Lecturer</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Topic</th>
@@ -147,8 +149,12 @@ export default function ScheduleList({ admin }: ScheduleListProps) {
                     <td className="py-3 px-4 text-gray-900">
                       {DAYS[schedule.dayOfWeek]}
                     </td>
-                    <td className="py-3 px-4 text-gray-900">
-                      {schedule.startTime}
+                    <td className="py-3 px-4">
+                      <div className="text-gray-900 font-medium">{schedule.startTime}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {schedule.timezone === "Africa/Lagos" ? "🇳🇬 " : ""}
+                        {getTimezoneDisplay(schedule.timezone || "Africa/Lagos")}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-gray-900">
                       {schedule.durationMinutes} min

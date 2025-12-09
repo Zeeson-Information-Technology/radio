@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { COMMON_TIMEZONES } from "@/lib/timezones";
 
 const DAYS = [
   { value: 0, label: "Sunday" },
@@ -24,6 +25,8 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
   const [lecturer, setLecturer] = useState("");
   const [topic, setTopic] = useState("");
   const [active, setActive] = useState(true);
+  const [isNigeriaTime, setIsNigeriaTime] = useState(true);
+  const [timezone, setTimezone] = useState("Africa/Lagos");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -46,6 +49,11 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
         setLecturer(data.item.lecturer);
         setTopic(data.item.topic);
         setActive(data.item.active);
+        
+        // Set timezone
+        const itemTimezone = data.item.timezone || "Africa/Lagos";
+        setTimezone(itemTimezone);
+        setIsNigeriaTime(itemTimezone === "Africa/Lagos");
       } else {
         setError(data.error || "Failed to fetch schedule");
       }
@@ -71,6 +79,7 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
         body: JSON.stringify({
           dayOfWeek,
           startTime,
+          timezone: isNigeriaTime ? "Africa/Lagos" : timezone,
           durationMinutes,
           lecturer,
           topic,
@@ -114,10 +123,10 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
           <p className="text-sm text-gray-600">
             Update scheduled lecture time
           </p>
-          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-800">
-              ⏰ <strong>Note:</strong> Enter times in Nigeria time (West Africa Time - WAT, UTC+1).
-              International listeners will see times automatically converted to their timezone.
+          <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <p className="text-sm text-emerald-800">
+              🌍 <strong>Timezone Support:</strong> Enter the time in your local timezone.
+              Listeners worldwide will see times automatically converted to their timezone.
             </p>
           </div>
         </div>
@@ -144,7 +153,7 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
               value={dayOfWeek}
               onChange={(e) => setDayOfWeek(Number(e.target.value))}
               disabled={isSubmitting}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
             >
               {DAYS.map((day) => (
                 <option key={day.value} value={day.value}>
@@ -152,6 +161,69 @@ export default function EditScheduleForm({ scheduleId }: EditScheduleFormProps) 
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Timezone Selection */}
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-700">
+              Timezone
+            </label>
+            
+            {/* Nigeria Quick Select */}
+            <div className="flex items-center p-4 bg-emerald-50 border-2 border-emerald-200 rounded-lg">
+              <input
+                id="nigeriaTime"
+                type="checkbox"
+                checked={isNigeriaTime}
+                onChange={(e) => {
+                  setIsNigeriaTime(e.target.checked);
+                  if (e.target.checked) {
+                    setTimezone("Africa/Lagos");
+                  }
+                }}
+                disabled={isSubmitting}
+                className="w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500"
+              />
+              <label
+                htmlFor="nigeriaTime"
+                className="ml-3 flex-1"
+              >
+                <span className="block text-sm font-semibold text-emerald-900">
+                  🇳🇬 Nigeria Time (WAT, UTC+1)
+                </span>
+                <span className="block text-xs text-emerald-700 mt-0.5">
+                  Check this if you're scheduling in Nigeria timezone
+                </span>
+              </label>
+            </div>
+
+            {/* Custom Timezone Selector */}
+            {!isNigeriaTime && (
+              <div>
+                <label
+                  htmlFor="timezone"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  Select Your Timezone
+                </label>
+                <select
+                  id="timezone"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  disabled={isSubmitting}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
+                >
+                  {COMMON_TIMEZONES.map((tz) => (
+                    <option key={tz.value} value={tz.value}>
+                      {tz.label} ({tz.offset})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Select the timezone where the lecture will be scheduled
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Start Time */}

@@ -65,3 +65,23 @@ body {
   opacity: 0.5;
   pointer-events: none;
 }
+
+/* Cursor Pointer for All Interactive Elements */
+button,
+a,
+[role="button"],
+[type="button"],
+[type="submit"],
+[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+select,
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/* Disabled state should show not-allowed cursor */
+button:disabled,
+[disabled] {
+  cursor: not-allowed;
+}

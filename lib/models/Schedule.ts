@@ -6,7 +6,8 @@ import mongoose, { Schema, Document, Model } from "mongoose";
  */
 export interface ISchedule extends Document {
   dayOfWeek: number; // 0 = Sunday, 6 = Saturday
-  startTime: string; // "20:00" in 24h format
+  startTime: string; // "20:00" in 24h format (in the specified timezone)
+  timezone: string; // IANA timezone (e.g., "Africa/Lagos", "America/New_York")
   durationMinutes: number;
   mount: string;
   lecturer: string;
@@ -33,6 +34,11 @@ const ScheduleSchema = new Schema<ISchedule>(
         message: (props) =>
           `${props.value} is not a valid time format! Use HH:MM (24h format)`,
       },
+    },
+    timezone: {
+      type: String,
+      required: true,
+      default: "Africa/Lagos", // Default to Nigeria timezone
     },
     durationMinutes: {
       type: Number,

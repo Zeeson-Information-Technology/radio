@@ -115,12 +115,13 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { dayOfWeek, startTime, durationMinutes, lecturer, topic, active } = body;
+    const { dayOfWeek, startTime, timezone, durationMinutes, lecturer, topic, active } = body;
 
     // Validate required fields
     if (
       dayOfWeek === undefined ||
       !startTime ||
+      !timezone ||
       !durationMinutes ||
       !lecturer ||
       !topic
@@ -135,6 +136,7 @@ export async function POST(request: NextRequest) {
     const schedule = await Schedule.create({
       dayOfWeek,
       startTime,
+      timezone,
       durationMinutes,
       lecturer,
       topic,

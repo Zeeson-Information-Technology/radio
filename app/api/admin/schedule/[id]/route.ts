@@ -130,7 +130,7 @@ export async function PUT(
 
     // Parse request body
     const body = await request.json();
-    const { dayOfWeek, startTime, durationMinutes, lecturer, topic, active } = body;
+    const { dayOfWeek, startTime, timezone, durationMinutes, lecturer, topic, active } = body;
 
     // Find and update schedule
     const schedule = await Schedule.findByIdAndUpdate(
@@ -138,6 +138,7 @@ export async function PUT(
       {
         dayOfWeek,
         startTime,
+        timezone: timezone || "Africa/Lagos", // Default to Nigeria if not provided
         durationMinutes,
         lecturer,
         topic,

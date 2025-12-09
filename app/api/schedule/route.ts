@@ -17,12 +17,18 @@ export async function GET() {
     // Fetch all active schedules, sorted by day and time
     const schedules = await Schedule.find({ active: true })
       .sort({ dayOfWeek: 1, startTime: 1 })
-      .select('dayOfWeek startTime durationMinutes lecturer topic')
+      .select('dayOfWeek startTime timezone durationMinutes lecturer topic')
       .lean();
+
+    // Ensure all schedules have timezone field (fallback for old schedules)
+    const schedulesWithTimezone = schedules.map(schedule => ({
+      ...schedule,
+      timezone: schedule.timezone || "Africa/Lagos", // Default to Nigeria if missing
+    }));
 
     return NextResponse.json({
       ok: true,
-      items: schedules,
+      items: schedulesWithTimezone,
     });
   } catch (error) {
     console.error("Public schedule API error:", error);

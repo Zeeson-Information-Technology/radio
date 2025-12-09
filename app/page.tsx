@@ -407,7 +407,7 @@ export default function HomePage() {
                 color: '#D4AF37'
               }}
             >
-              بارك الله فيكم - May Allah bless you
+              جزاكم الله خيرا - May Allah reward you with goodness
             </p>
           </div>
         </div>

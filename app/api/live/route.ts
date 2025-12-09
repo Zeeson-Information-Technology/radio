@@ -36,9 +36,11 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       isLive: liveState.isLive,
+      isPaused: liveState.isPaused || false,
       title: liveState.title || null,
       lecturer: liveState.lecturer || null,
       startedAt: liveState.startedAt ? liveState.startedAt.toISOString() : null,
+      pausedAt: liveState.pausedAt ? liveState.pausedAt.toISOString() : null,
       streamUrl,
     });
   } catch (error) {
@@ -49,9 +51,11 @@ export async function GET() {
       {
         ok: false,
         isLive: false,
+        isPaused: false,
         title: "Service Unavailable",
         lecturer: null,
         startedAt: null,
+        pausedAt: null,
         streamUrl: config.streamUrl || "https://example.com/stream",
         error: "Unable to fetch live state",
       },

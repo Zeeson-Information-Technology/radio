@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { convertUTCToLocal, getUserTimezoneDisplay } from "@/lib/timezone";
+import { convertUTCToLocal, convertTimezoneToLocal, getUserTimezoneDisplay, getUserTimezone } from "@/lib/timezone";
 import Link from "next/link";
 
 interface LiveData {
@@ -17,6 +17,7 @@ interface ScheduleItem {
   _id: string;
   dayOfWeek: number;
   startTime: string;
+  timezone?: string;
   durationMinutes: number;
   lecturer: string;
   topic: string;
@@ -33,6 +34,14 @@ interface RadioPlayerProps {
 }
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Helper to convert 24h time string to 12h format
+function convertTo12Hour(time24: string): string {
+  const [hours, minutes] = time24.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+}
 
 export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -102,7 +111,38 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
     return daysUntil > 0 && daysUntil <= 3;
   });
 
-  const userInNigeria = isUserInNigeria();
+  // Group all schedules by day for weekly view
+  const weeklySchedule = DAYS.map((dayName, dayIndex) => ({
+    day: dayName,
+    dayIndex,
+    items: scheduleData.items.filter(item => item.dayOfWeek === dayIndex),
+  })).filter(day => day.items.length > 0);
+
+  // Get user timezone for display
+  const userTimezone = getUserTimezone();
+  const showTimezoneInfo = true; // Always show timezone info for clarity
+
+  // Find next scheduled program
+  const getNextProgram = () => {
+    const now = new Date();
+    const currentDay = now.getDay();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    
+    // Check today's remaining programs
+    const todayRemaining = todaySchedule.filter(item => item.startTime > currentTime);
+    if (todayRemaining.length > 0) {
+      return { ...todayRemaining[0], isToday: true };
+    }
+    
+    // Check upcoming days
+    if (upcomingSchedule.length > 0) {
+      return { ...upcomingSchedule[0], isToday: false };
+    }
+    
+    return null;
+  };
+
+  const nextProgram = getNextProgram();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/30">
@@ -124,10 +164,11 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
             {/* Player Card */}
             <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
               {/* Header with Live Status */}
-              <div className={`p-8 ${liveData.isLive ? 'bg-gradient-to-r from-red-500 to-pink-500' : 'bg-gradient-to-r from-emerald-500 to-teal-500'}`}>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    {liveData.isLive ? (
+              <div className={`p-8 ${liveData.isLive ? 'bg-gradient-to-r from-red-600 to-rose-600' : 'bg-gradient-to-r from-emerald-600 to-emerald-700'}`}>
+                {liveData.isLive ? (
+                  // LIVE STATE - Show live broadcast info
+                  <>
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
                       <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2">
                         <span className="relative flex h-3 w-3">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
@@ -135,113 +176,226 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                         </span>
                         <span className="text-sm font-bold text-white">LIVE NOW</span>
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2">
-                        <span className="text-sm font-semibold text-white">24/7 STREAMING</span>
+                      
+                      {/* Volume Control */}
+                      <div className="flex items-center gap-3 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={volume}
+                          onChange={(e) => setVolume(Number(e.target.value))}
+                          className="w-24 h-2 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
+                        />
+                        <span className="text-sm font-medium text-white w-8">{volume}%</span>
+                      </div>
+                    </div>
+
+                    <h1 className="text-3xl font-bold text-white mb-2">
+                      {liveData.title || "Live Lecture"}
+                    </h1>
+                    {liveData.lecturer && (
+                      <p className="text-white/90 text-lg mb-2">
+                        with {liveData.lecturer}
+                      </p>
+                    )}
+                    {liveData.startedAt && (
+                      <p className="text-white/80 text-sm">
+                        {formatStartTime(liveData.startedAt)}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  // OFFLINE STATE - Show welcoming message
+                  <>
+                    <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
+                        </svg>
+                        <span className="text-white/90 text-sm font-medium">Al-Manhaj Radio</span>
+                      </div>
+                      
+                      {/* Volume Control */}
+                      <div className="flex items-center gap-3 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={volume}
+                          onChange={(e) => setVolume(Number(e.target.value))}
+                          className="w-24 h-2 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
+                        />
+                        <span className="text-sm font-medium text-white w-8">{volume}%</span>
+                      </div>
+                    </div>
+
+                    <div className="text-center py-4">
+                      <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">
+                        As-salamu alaykum! 👋
+                      </h1>
+                      <p className="text-white/90 text-lg mb-2">
+                        Welcome to Al-Manhaj Radio
+                      </p>
+                      <p className="text-white/80 text-base">
+                        We're currently between programs
+                      </p>
+                    </div>
+
+                    {/* Next Program Info */}
+                    {nextProgram && (
+                      <div className="mt-6 bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+                        <div className="flex items-start gap-4">
+                          <div className="flex-shrink-0">
+                            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-white/70 text-sm mb-1">
+                              {nextProgram.isToday ? "Coming up today" : `Coming up ${DAYS[nextProgram.dayOfWeek]}`}
+                            </p>
+                            <h3 className="text-white font-bold text-lg mb-1">
+                              {nextProgram.topic}
+                            </h3>
+                            <p className="text-white/80 text-sm mb-2">
+                              with {nextProgram.lecturer}
+                            </p>
+                            <div className="flex items-center gap-2 text-white">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span className="font-semibold">{convertTimezoneToLocal(nextProgram.startTime, nextProgram.timezone || "Africa/Lagos")}</span>
+                              <span className="text-white/70">• {nextProgram.durationMinutes} minutes</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
-                  </div>
-                  
-                  {/* Volume Control */}
-                  <div className="flex items-center gap-3 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    </svg>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={volume}
-                      onChange={(e) => setVolume(Number(e.target.value))}
-                      className="w-24 h-2 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
-                    />
-                    <span className="text-sm font-medium text-white w-8">{volume}%</span>
-                  </div>
-                </div>
-
-                <h1 className="text-3xl font-bold text-white mb-2">
-                  {liveData.title || "Al-Manhaj Radio"}
-                </h1>
-                {liveData.lecturer && (
-                  <p className="text-white/90 text-lg mb-2">
-                    by {liveData.lecturer}
-                  </p>
-                )}
-                {liveData.isLive && liveData.startedAt && (
-                  <p className="text-white/80 text-sm">
-                    {formatStartTime(liveData.startedAt)}
-                  </p>
+                  </>
                 )}
               </div>
 
               {/* Player Controls */}
               <div className="p-8 bg-gradient-to-br from-slate-50 to-white">
-                <div className="flex flex-col items-center">
-                  {/* Play/Pause Button */}
-                  <button
-                    onClick={handlePlayPause}
-                    className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${
-                      isPlaying
-                        ? "bg-gradient-to-br from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 scale-110"
-                        : "bg-gradient-to-br from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 hover:scale-110"
-                    } text-white group`}
-                  >
-                    {isPlaying ? (
-                      <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-10 h-10 ml-1" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
+                {liveData.isLive ? (
+                  // LIVE - Show play button
+                  <div className="flex flex-col items-center">
+                    {/* Play/Pause Button */}
+                    <button
+                      onClick={handlePlayPause}
+                      className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${
+                        isPlaying
+                          ? "bg-gradient-to-br from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 scale-110"
+                          : "bg-gradient-to-br from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 hover:scale-110"
+                      } text-white group`}
+                    >
+                      {isPlaying ? (
+                        <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-10 h-10 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      )}
+                    </button>
+
+                    <audio
+                      ref={audioRef}
+                      src={liveData.streamUrl}
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onError={() => {
+                        setIsPlaying(false);
+                        console.error("Audio stream error");
+                      }}
+                      preload="none"
+                    />
+
+                    <p className="mt-6 text-lg font-semibold text-slate-700">
+                      {isPlaying ? "Now Playing Live" : "Click to Listen Live"}
+                    </p>
+                    <p className="text-sm text-slate-500 mt-2">
+                      High Quality Audio Stream
+                    </p>
+
+                    {/* Waveform Animation */}
+                    {isPlaying && (
+                      <div className="flex items-center gap-1 mt-6">
+                        {[...Array(5)].map((_, i) => (
+                          <div
+                            key={i}
+                            className="w-1 bg-gradient-to-t from-emerald-500 to-teal-500 rounded-full animate-pulse"
+                            style={{
+                              height: `${Math.random() * 24 + 8}px`,
+                              animationDelay: `${i * 0.1}s`,
+                              animationDuration: '0.8s'
+                            }}
+                          ></div>
+                        ))}
+                      </div>
                     )}
-                  </button>
-
-                  <audio
-                    ref={audioRef}
-                    src={liveData.streamUrl}
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
-                    onError={() => {
-                      setIsPlaying(false);
-                      console.error("Audio stream error");
-                    }}
-                    preload="none"
-                  />
-
-                  <p className="mt-6 text-lg font-semibold text-slate-700">
-                    {isPlaying ? "Now Playing" : "Click to Play"}
-                  </p>
-                  <p className="text-sm text-slate-500 mt-2">
-                    High Quality Audio Stream
-                  </p>
-
-                  {/* Waveform Animation */}
-                  {isPlaying && (
-                    <div className="flex items-center gap-1 mt-6">
-                      {[...Array(5)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="w-1 bg-gradient-to-t from-emerald-500 to-teal-500 rounded-full animate-pulse"
-                          style={{
-                            height: `${Math.random() * 24 + 8}px`,
-                            animationDelay: `${i * 0.1}s`,
-                            animationDuration: '0.8s'
-                          }}
-                        ></div>
-                      ))}
+                  </div>
+                ) : (
+                  // OFFLINE - Show message, no play button
+                  <div className="flex flex-col items-center py-8">
+                    <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center mb-6">
+                      <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
+                      </svg>
                     </div>
-                  )}
-                </div>
+                    <p className="text-lg font-semibold text-slate-700 mb-2">
+                      No Live Broadcast
+                    </p>
+                    <p className="text-sm text-slate-500 text-center max-w-md">
+                      We're currently offline. Check the schedule below for our next live program.
+                    </p>
+                  </div>
+                )}
 
                 {/* Info Message */}
-                <div className="mt-8 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <p className="text-sm text-emerald-800 text-center">
-                    {liveData.isLive
-                      ? "🎙️ You are listening to a live lecture. May Allah bless you."
-                      : "📻 Currently playing recorded content. Check the schedule for live sessions."}
-                  </p>
-                </div>
+                {liveData.isLive ? (
+                  <div className="mt-8 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <p className="text-sm text-emerald-800 text-center">
+                      🎙️ You are listening to a live broadcast. May Allah bless you and increase you in knowledge.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-8 space-y-4">
+                    {/* When to return message */}
+                    <div className="p-6 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div>
+                          <h4 className="font-semibold text-emerald-900 mb-2">
+                            {nextProgram 
+                              ? nextProgram.isToday 
+                                ? `Join us live at ${convertTimezoneToLocal(nextProgram.startTime, nextProgram.timezone || "Africa/Lagos")} today`
+                                : `Join us live ${DAYS[nextProgram.dayOfWeek]} at ${convertTimezoneToLocal(nextProgram.startTime, nextProgram.timezone || "Africa/Lagos")}`
+                              : todaySchedule.length > 0
+                                ? "Check today's schedule below for live programs"
+                                : "Check our schedule for upcoming live programs"}
+                          </h4>
+                          <p className="text-sm text-emerald-700">
+                            The radio stream is only available during live broadcasts.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                   
+                  </div>
+                )}
 
                 {/* Auto-refresh indicator */}
                 <p className="text-center text-xs text-slate-400 mt-4">
@@ -251,24 +405,22 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
             </div>
 
             {/* Timezone Info */}
-            {!userInNigeria && (
-              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
-                <div className="flex items-start gap-3">
-                  <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <h3 className="font-semibold text-blue-900 mb-1">Timezone Information</h3>
-                    <p className="text-sm text-blue-800">
-                      Times shown in your timezone: <span className="font-medium">{getUserTimezoneDisplay()}</span>
-                    </p>
-                    <p className="text-sm text-blue-700 mt-1">
-                      Schedule times are in Nigeria time (WAT, UTC+1)
-                    </p>
-                  </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-1">Timezone Information</h3>
+                  <p className="text-sm text-blue-800">
+                    Times shown in your timezone: <span className="font-medium">{getUserTimezoneDisplay()}</span>
+                  </p>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Schedule times are automatically converted to your local time
+                  </p>
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Sidebar - Schedule */}
@@ -289,7 +441,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
               {todaySchedule.length > 0 ? (
                 <div className="space-y-3">
                   {todaySchedule.map((item) => {
-                    const localTime = convertWATToLocal(item.startTime);
+                    const localTime = convertTimezoneToLocal(item.startTime, item.timezone || "Africa/Lagos");
                     return (
                       <div
                         key={item._id}
@@ -298,13 +450,8 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                         <div className="flex items-start gap-3">
                           <div className="flex-shrink-0">
                             <div className="text-lg font-bold text-emerald-600">
-                              {userInNigeria ? item.startTime : localTime}
+                              {localTime}
                             </div>
-                            {!userInNigeria && (
-                              <div className="text-xs text-emerald-600/70">
-                                {item.startTime} WAT
-                              </div>
-                            )}
                             <div className="text-xs text-slate-500 mt-1">
                               {item.durationMinutes} min
                             </div>
@@ -350,7 +497,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
 
                 <div className="space-y-3">
                   {upcomingSchedule.slice(0, 3).map((item) => {
-                    const localTime = convertWATToLocal(item.startTime);
+                    const localTime = convertTimezoneToLocal(item.startTime, item.timezone || "Africa/Lagos");
                     return (
                       <div
                         key={item._id}
@@ -362,13 +509,8 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                               {DAYS[item.dayOfWeek]}
                             </div>
                             <div className="text-base font-bold text-slate-900">
-                              {userInNigeria ? item.startTime : localTime}
+                              {localTime}
                             </div>
-                            {!userInNigeria && (
-                              <div className="text-xs text-purple-600/70">
-                                {item.startTime} WAT
-                              </div>
-                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-slate-900 text-sm leading-tight mb-1">
@@ -386,32 +528,97 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
               </div>
             )}
 
+            {/* This Week's Schedule */}
+            {weeklySchedule.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-xl p-6 border border-slate-200">
+                <div className="flex items-center gap-2 mb-6">
+                  <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900">
+                    This Week's Schedule
+                  </h2>
+                </div>
+
+                <div className="space-y-4">
+                  {weeklySchedule.map((daySchedule) => (
+                    <div key={daySchedule.dayIndex} className="border-l-4 border-amber-400 pl-4">
+                      <h3 className={`font-bold text-sm mb-2 ${
+                        daySchedule.dayIndex === today 
+                          ? 'text-emerald-600' 
+                          : 'text-slate-700'
+                      }`}>
+                        {daySchedule.day}
+                        {daySchedule.dayIndex === today && (
+                          <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                            Today
+                          </span>
+                        )}
+                      </h3>
+                      <div className="space-y-2">
+                        {daySchedule.items.map((item) => {
+                          const localTime = convertTimezoneToLocal(item.startTime, item.timezone || "Africa/Lagos");
+                          return (
+                            <div
+                              key={item._id}
+                              className="p-3 bg-gradient-to-br from-amber-50 to-orange-50 rounded-lg border border-amber-200"
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0">
+                                  <div className="text-sm font-bold text-amber-700">
+                                    {localTime}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    {item.durationMinutes} min
+                                  </div>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-semibold text-slate-900 text-xs leading-tight mb-0.5">
+                                    {item.topic}
+                                  </h4>
+                                  <p className="text-xs text-slate-600">
+                                    {item.lecturer}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Quick Info */}
             <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-6 border border-amber-200">
               <h3 className="font-semibold text-amber-900 mb-3 flex items-center gap-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                About This Stream
+                About Al-Manhaj Radio
               </h3>
               <ul className="space-y-2 text-sm text-amber-800">
                 <li className="flex items-start gap-2">
                   <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
+                  <span>Live Islamic lectures and programs</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Following the way of the Salaf</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
                   <span>High quality audio streaming</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>Available 24/7</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>Authentic Islamic content</span>
                 </li>
               </ul>
             </div>
