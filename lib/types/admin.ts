@@ -5,7 +5,7 @@
 export interface SerializedAdmin {
   _id: string;
   email: string;
-  role: "admin" | "presenter";
+  role: "super_admin" | "admin" | "presenter";
   mustChangePassword: boolean;
   createdAt?: string;
   lastLoginAt?: string;

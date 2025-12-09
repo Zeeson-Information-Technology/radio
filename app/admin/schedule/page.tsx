@@ -21,10 +21,6 @@ export default async function AdminSchedulePage() {
     redirect("/admin/login");
   }
 
-  // Only admins can manage schedule
-  if (admin.role !== "admin") {
-    redirect("/admin/live");
-  }
-
+  // All authenticated users can manage schedule
   return <ScheduleList admin={serializeAdmin(admin)} />;
 }

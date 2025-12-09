@@ -39,19 +39,12 @@ export async function GET(
     // Connect to database
     await connectDB();
 
-    // Find user and verify admin role
+    // Find user - all authenticated users can view schedules
     const user = await AdminUser.findById(payload.userId);
     if (!user) {
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
-      );
-    }
-
-    if (user.role !== "admin") {
-      return NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
       );
     }
 
@@ -112,19 +105,12 @@ export async function PUT(
     // Connect to database
     await connectDB();
 
-    // Find user and verify admin role
+    // Find user - all authenticated users can update schedules
     const user = await AdminUser.findById(payload.userId);
     if (!user) {
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
-      );
-    }
-
-    if (user.role !== "admin") {
-      return NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
       );
     }
 
@@ -210,19 +196,12 @@ export async function DELETE(
     // Connect to database
     await connectDB();
 
-    // Find user and verify admin role
+    // Find user - all authenticated users can delete schedules
     const user = await AdminUser.findById(payload.userId);
     if (!user) {
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
-      );
-    }
-
-    if (user.role !== "admin") {
-      return NextResponse.json(
-        { error: "Admin access required" },
-        { status: 403 }
       );
     }
 

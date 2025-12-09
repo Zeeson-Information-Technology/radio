@@ -294,21 +294,22 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {admin.role === "admin" && (
-                  <>
-                    <Link
-                      href="/admin/schedule"
-                      className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
-                    >
-                      📅 Schedule
-                    </Link>
-                    <Link
-                      href="/admin/presenters"
-                      className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
-                    >
-                      👥 Users
-                    </Link>
-                  </>
+                {/* All users can access schedule */}
+                <Link
+                  href="/admin/schedule"
+                  className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
+                >
+                  📅 Schedule
+                </Link>
+                
+                {/* Only super_admin and admin can manage users */}
+                {(admin.role === "super_admin" || admin.role === "admin") && (
+                  <Link
+                    href="/admin/presenters"
+                    className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
+                  >
+                    👥 Users
+                  </Link>
                 )}
                 <Link
                   href="/admin/change-password"
