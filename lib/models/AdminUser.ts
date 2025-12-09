@@ -5,6 +5,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
  * Represents an admin or presenter who can manage the radio
  */
 export interface IAdminUser extends Document {
+  name: string;
   email: string;
   passwordHash: string;
   role: "super_admin" | "admin" | "presenter";
@@ -16,6 +17,11 @@ export interface IAdminUser extends Document {
 
 const AdminUserSchema = new Schema<IAdminUser>(
   {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     email: {
       type: String,
       required: true,

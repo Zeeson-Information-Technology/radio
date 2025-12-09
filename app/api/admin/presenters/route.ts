@@ -86,12 +86,12 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { email, role = "presenter" } = body;
+    const { name, email, role = "presenter" } = body;
 
     // Validate input
-    if (!email) {
+    if (!name || !email) {
       return NextResponse.json(
-        { error: "Email is required" },
+        { error: "Name and email are required" },
         { status: 400 }
       );
     }
@@ -139,6 +139,7 @@ export async function POST(request: NextRequest) {
 
     // Create user with specified role
     const newUser = await AdminUser.create({
+      name,
       email: email.toLowerCase(),
       passwordHash,
       role: role,
