@@ -50,7 +50,7 @@ async function seedAdmin() {
       const superAdmin = await AdminUser.create({
         email: superAdminEmail.toLowerCase(),
         passwordHash: superAdminHash,
-        role: "admin",
+        role: "super_admin",
         mustChangePassword: false,
         createdBy: null,
       });

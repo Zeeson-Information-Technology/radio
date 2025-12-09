@@ -19,8 +19,8 @@ export default async function PresentersPage() {
     redirect("/admin/login");
   }
 
-  // Check if user is admin
-  if (admin.role !== "admin") {
+  // Only super_admin and admin can manage users
+  if (admin.role !== "super_admin" && admin.role !== "admin") {
     redirect("/admin/live");
   }
 

@@ -122,12 +122,14 @@ export default function PresentersList() {
                     <td className="py-3 px-4">
                       <span
                         className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          presenter.role === "admin"
+                          presenter.role === "super_admin"
+                            ? "bg-yellow-100 text-yellow-800"
+                            : presenter.role === "admin"
                             ? "bg-purple-100 text-purple-800"
                             : "bg-blue-100 text-blue-800"
                         }`}
                       >
-                        {presenter.role === "admin" ? "Admin" : "Presenter"}
+                        {presenter.role === "super_admin" ? "Super Admin" : presenter.role === "admin" ? "Admin" : "Presenter"}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-gray-600">
