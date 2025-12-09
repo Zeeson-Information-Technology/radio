@@ -4,7 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export default function NewPresenterForm() {
+interface NewPresenterFormProps {
+  currentUserRole: "super_admin" | "admin" | "presenter";
+}
+
+export default function NewPresenterForm({ currentUserRole }: NewPresenterFormProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "presenter">("presenter");
   const [error, setError] = useState("");
@@ -194,13 +198,17 @@ export default function NewPresenterForm() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               <option value="presenter">Presenter</option>
-              <option value="admin">Admin</option>
+              {/* Only super_admin and admin can create admins */}
+              {(currentUserRole === "super_admin" || currentUserRole === "admin") && (
+                <option value="admin">Admin</option>
+              )}
             </select>
             <p className="mt-2 text-sm text-gray-500">
               {role === "admin" 
-                ? "Admins can create users and manage everything" 
+                ? "Admins can create presenters and manage schedules" 
                 : "Presenters can manage live streams and change their password"}
             </p>
+           
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

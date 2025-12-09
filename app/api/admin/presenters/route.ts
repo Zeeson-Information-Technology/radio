@@ -11,7 +11,7 @@ import crypto from "crypto";
  * POST /api/admin/presenters - Create new presenter (admin only)
  */
 
-// Helper to check if user is admin
+// Helper to check if user is admin or super_admin
 async function getAuthenticatedAdmin() {
   const cookieStore = await cookies();
   const token = cookieStore.get("admin_token")?.value;
@@ -28,7 +28,8 @@ async function getAuthenticatedAdmin() {
   await connectDB();
   const admin = await AdminUser.findById(payload.userId);
   
-  if (!admin || admin.role !== "admin") {
+  // Must be super_admin or admin role
+  if (!admin || (admin.role !== "super_admin" && admin.role !== "admin")) {
     return null;
   }
 
@@ -105,8 +106,17 @@ export async function POST(request: NextRequest) {
     // Validate role
     if (role !== "admin" && role !== "presenter") {
       return NextResponse.json(
-        { error: "Role must be either 'admin' or 'presenter'" },
+        { error: "Role must be 'admin' or 'presenter'" },
         { status: 400 }
+      );
+    }
+
+    // Role hierarchy: Only super_admin can create admins
+    // Regular admins can only create presenters
+    if (role === "admin" && admin.role !== "super_admin") {
+      return NextResponse.json(
+        { error: "Only super admin can create admin users" },
+        { status: 403 }
       );
     }
 
@@ -149,6 +159,15 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Create presenter error:", error);
+    
+    // Handle MongoDB duplicate key error
+    if (error instanceof Error && 'code' in error && (error as any).code === 11000) {
+      return NextResponse.json(
+        { error: "A user with this email already exists" },
+        { status: 409 }
+      );
+    }
+    
     return NextResponse.json(
       { error: "An error occurred while creating presenter" },
       { status: 500 }

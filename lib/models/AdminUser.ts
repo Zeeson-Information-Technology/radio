@@ -7,7 +7,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 export interface IAdminUser extends Document {
   email: string;
   passwordHash: string;
-  role: "admin" | "presenter";
+  role: "super_admin" | "admin" | "presenter";
   mustChangePassword: boolean;
   createdBy: mongoose.Types.ObjectId | null;
   lastLoginAt: Date | null;
@@ -29,7 +29,7 @@ const AdminUserSchema = new Schema<IAdminUser>(
     },
     role: {
       type: String,
-      enum: ["admin", "presenter"],
+      enum: ["super_admin", "admin", "presenter"],
       default: "presenter",
     },
     mustChangePassword: {

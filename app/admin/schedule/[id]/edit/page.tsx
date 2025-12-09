@@ -20,10 +20,6 @@ export default async function EditSchedulePage({
     redirect("/admin/login");
   }
 
-  // Only admins can manage schedule
-  if (admin.role !== "admin") {
-    redirect("/admin/live");
-  }
-
+  // All authenticated users can edit schedules
   return <EditScheduleForm scheduleId={id} />;
 }

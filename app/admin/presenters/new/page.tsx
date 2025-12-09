@@ -13,10 +13,10 @@ export default async function NewPresenterPage() {
     redirect("/admin/login");
   }
 
-  // Check if user is admin
-  if (admin.role !== "admin") {
+  // Only super_admin and admin can create users
+  if (admin.role !== "super_admin" && admin.role !== "admin") {
     redirect("/admin/live");
   }
 
-  return <NewPresenterForm />;
+  return <NewPresenterForm currentUserRole={admin.role} />;
 }
