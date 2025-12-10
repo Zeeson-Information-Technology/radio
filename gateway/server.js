@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const mongoose = require('mongoose');
 
 // Environment variables
 const PORT = process.env.GATEWAY_PORT || 8080;
@@ -18,6 +19,21 @@ const ICECAST_HOST = process.env.ICECAST_HOST || 'localhost';
 const ICECAST_PORT = process.env.ICECAST_PORT || 8000;
 const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD || 'hackme';
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT || '/stream';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/online-radio';
+
+// MongoDB LiveState Schema
+const LiveStateSchema = new mongoose.Schema({
+  isLive: { type: Boolean, default: false },
+  isPaused: { type: Boolean, default: false },
+  mount: { type: String, default: '/stream' },
+  title: { type: String, default: null },
+  lecturer: { type: String, default: null },
+  startedAt: { type: Date, default: null },
+  pausedAt: { type: Date, default: null },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const LiveState = mongoose.models.LiveState || mongoose.model('LiveState', LiveStateSchema);
 
 class BroadcastGateway {
   constructor() {
@@ -26,8 +42,18 @@ class BroadcastGateway {
     this.ffmpegProcess = null;
     this.isStreaming = false;
     
+    this.connectToDatabase();
     this.setupWebSocketServer();
     this.setupGracefulShutdown();
+  }
+
+  async connectToDatabase() {
+    try {
+      await mongoose.connect(MONGODB_URI);
+      console.log('📊 Connected to MongoDB');
+    } catch (error) {
+      console.error('❌ MongoDB connection error:', error);
+    }
   }
 
   setupWebSocketServer() {
@@ -65,19 +91,40 @@ class BroadcastGateway {
     }
   }
 
-  handleConnection(ws, req) {
+  async handleConnection(ws, req) {
     const user = req.user;
     
     console.log(`🔌 New connection from ${user.email} (${user.role})`);
 
     // Check if someone is already broadcasting
     if (this.currentBroadcast) {
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: 'Another presenter is currently live. Please try again later.'
-      }));
-      ws.close();
-      return;
+      // Check if it's the same user trying to reconnect
+      if (this.currentBroadcast.user.userId === user.userId) {
+        console.log(`🔄 User ${user.email} reconnecting to existing session`);
+        
+        // Replace the old WebSocket with the new one
+        this.currentBroadcast.ws = ws;
+        
+        // Setup message handlers for new connection
+        ws.on('message', this.handleMessage.bind(this, ws, user));
+        ws.on('close', this.handleDisconnection.bind(this, user));
+        ws.on('error', this.handleError.bind(this, user));
+
+        // Send ready signal
+        ws.send(JSON.stringify({
+          type: 'ready',
+          message: 'Reconnected to existing broadcast session.'
+        }));
+        
+        return;
+      } else {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Another presenter (${this.currentBroadcast.user.email}) is currently live. Please try again later.`
+        }));
+        ws.close();
+        return;
+      }
     }
 
     // Set this as current broadcast
@@ -101,16 +148,20 @@ class BroadcastGateway {
 
   handleMessage(ws, user, message) {
     try {
-      // Check if message is JSON (control message) or binary (audio data)
-      if (message[0] === 0x7B) { // JSON starts with '{'
+      // Check if message is string (JSON control message) or binary (audio data)
+      if (typeof message === 'string' || (message instanceof Buffer && message[0] === 0x7B)) {
         const data = JSON.parse(message.toString());
         this.handleControlMessage(ws, user, data);
-      } else {
+      } else if (message instanceof ArrayBuffer || message instanceof Buffer) {
         // Binary audio data
         this.handleAudioData(ws, user, message);
+      } else {
+        console.log('⚠️ Unknown message type:', typeof message, message.constructor.name);
       }
     } catch (error) {
       console.error('❌ Error handling message:', error);
+      console.error('Message type:', typeof message);
+      console.error('Message length:', message.length);
       ws.send(JSON.stringify({
         type: 'error',
         message: 'Failed to process message'
@@ -124,6 +175,10 @@ class BroadcastGateway {
     switch (data.type) {
       case 'start_stream':
         this.startStreaming(ws, user, data);
+        break;
+      
+      case 'reconnect_stream':
+        this.reconnectStreaming(ws, user, data);
         break;
       
       case 'stop_stream':
@@ -153,7 +208,7 @@ class BroadcastGateway {
     }
   }
 
-  startStreaming(ws, user, config = {}) {
+  async startStreaming(ws, user, config = {}) {
     if (this.isStreaming) {
       ws.send(JSON.stringify({
         type: 'error',
@@ -171,7 +226,64 @@ class BroadcastGateway {
       bitrate: config.bitrate || 96 // 96kbps for good quality/bandwidth balance
     };
 
+    // Update database - set live state
+    await this.updateLiveState({
+      isLive: true,
+      isPaused: false,
+      title: config.title || 'Live Lecture',
+      lecturer: user.name || user.email,
+      startedAt: new Date(),
+      pausedAt: null
+    });
+
     this.startFFmpeg(ws, user, audioConfig);
+  }
+
+  async reconnectStreaming(ws, user, config = {}) {
+    console.log(`🔄 Reconnecting stream for ${user.email}`);
+
+    // If already streaming, just acknowledge the reconnection
+    if (this.isStreaming && this.ffmpegProcess) {
+      ws.send(JSON.stringify({
+        type: 'stream_started',
+        message: 'Reconnected to existing stream',
+        config: {
+          sampleRate: config.sampleRate || 44100,
+          channels: config.channels || 1,
+          bitrate: config.bitrate || 96
+        }
+      }));
+      return;
+    }
+
+    // If not streaming but database shows live, restart the stream
+    const liveState = await this.getLiveState();
+    if (liveState && liveState.isLive) {
+      console.log(`🎙️ Restarting stream for ${user.email} (session recovery)`);
+      
+      // Default audio config
+      const audioConfig = {
+        sampleRate: config.sampleRate || 44100,
+        channels: config.channels || 1,
+        bitrate: config.bitrate || 96
+      };
+
+      // Don't update startedAt - keep original time
+      await this.updateLiveState({
+        isLive: true,
+        isPaused: false,
+        title: config.title || liveState.title || 'Live Lecture',
+        lecturer: user.name || user.email,
+        // Keep original startedAt
+        startedAt: liveState.startedAt,
+        pausedAt: null
+      });
+
+      this.startFFmpeg(ws, user, audioConfig);
+    } else {
+      // No existing session, start new one
+      this.startStreaming(ws, user, config);
+    }
   }
 
   startFFmpeg(ws, user, audioConfig) {
@@ -263,7 +375,7 @@ class BroadcastGateway {
     });
   }
 
-  stopStreaming(ws, user) {
+  async stopStreaming(ws, user) {
     console.log(`🛑 Stopping stream for ${user.email}`);
 
     if (this.ffmpegProcess) {
@@ -272,6 +384,16 @@ class BroadcastGateway {
     }
 
     this.isStreaming = false;
+
+    // Update database - set offline state
+    await this.updateLiveState({
+      isLive: false,
+      isPaused: false,
+      title: null,
+      lecturer: null,
+      startedAt: null,
+      pausedAt: null
+    });
 
     ws.send(JSON.stringify({
       type: 'stream_stopped',
@@ -305,17 +427,55 @@ class BroadcastGateway {
     }, 1000);
   }
 
-  handleDisconnection(user) {
+  async handleDisconnection(user) {
     console.log(`🔌 Disconnected: ${user.email}`);
 
     if (this.currentBroadcast && this.currentBroadcast.user.userId === user.userId) {
-      this.stopStreaming(this.currentBroadcast.ws, user);
+      await this.stopStreaming(this.currentBroadcast.ws, user);
       this.currentBroadcast = null;
     }
   }
 
   handleError(user, error) {
     console.error(`❌ WebSocket error for ${user.email}:`, error);
+  }
+
+  async getLiveState() {
+    try {
+      return await LiveState.findOne();
+    } catch (error) {
+      console.error('❌ Error getting live state:', error);
+      return null;
+    }
+  }
+
+  async updateLiveState(stateData) {
+    try {
+      // Find existing LiveState or create new one
+      let liveState = await LiveState.findOne();
+      
+      if (!liveState) {
+        liveState = new LiveState({
+          mount: ICECAST_MOUNT,
+          ...stateData,
+          updatedAt: new Date()
+        });
+      } else {
+        // Update existing state
+        Object.assign(liveState, stateData);
+        liveState.updatedAt = new Date();
+      }
+
+      await liveState.save();
+      console.log(`📊 Updated live state: ${stateData.isLive ? 'LIVE' : 'OFFLINE'}`);
+      
+      if (stateData.isLive) {
+        console.log(`📺 Title: ${stateData.title}`);
+        console.log(`🎙️ Lecturer: ${stateData.lecturer}`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating live state:', error);
+    }
   }
 
   setupGracefulShutdown() {
