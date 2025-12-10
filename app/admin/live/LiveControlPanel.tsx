@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
 import Link from "next/link";
+import BrowserEncoder from "./BrowserEncoder";
 
 interface LiveControlPanelProps {
   admin: SerializedAdmin;
@@ -351,6 +352,20 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Main Control Panel */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Browser Broadcasting - Primary Option */}
+            <BrowserEncoder 
+              onStreamStart={() => {
+                setMessage("🎙️ Browser streaming started! You are now live.");
+                fetchLiveState();
+              }}
+              onStreamStop={() => {
+                setMessage("✅ Browser streaming stopped successfully.");
+                fetchLiveState();
+              }}
+              onError={(error) => {
+                setError(`Browser streaming error: ${error}`);
+              }}
+            />
             {/* Live Status Card */}
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl border-2 border-emerald-800/20 shadow-xl overflow-hidden">
               <div className="bg-gradient-to-r from-emerald-800 to-emerald-700 p-6 border-b-2 border-yellow-600/30">
