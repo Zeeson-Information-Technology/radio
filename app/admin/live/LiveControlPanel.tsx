@@ -354,6 +354,8 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
           <div className="lg:col-span-2 space-y-6">
             {/* Browser Broadcasting - Primary Option */}
             <BrowserEncoder 
+              title={title || 'Live Lecture'}
+              lecturer={lecturer || admin.name || admin.email}
               onStreamStart={() => {
                 setMessage("🎙️ Browser streaming started! You are now live.");
                 fetchLiveState();

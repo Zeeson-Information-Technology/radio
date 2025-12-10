@@ -6,6 +6,8 @@ interface BrowserEncoderProps {
   onStreamStart?: () => void;
   onStreamStop?: () => void;
   onError?: (error: string) => void;
+  title?: string;
+  lecturer?: string;
 }
 
 interface StreamConfig {
@@ -16,7 +18,7 @@ interface StreamConfig {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error';
 
-export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }: BrowserEncoderProps) {
+export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer }: BrowserEncoderProps) {
   // State management
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [audioLevel, setAudioLevel] = useState(0);
@@ -224,26 +226,20 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
 
-      // Connect audio graph
+      // Connect audio graph (NO feedback - don't connect to destination)
       source.connect(analyser);
       source.connect(processor);
-      processor.connect(audioContext.destination);
+      // DON'T connect processor to destination to prevent feedback
 
       // Process audio data
       processor.onaudioprocess = (event) => {
         const inputBuffer = event.inputBuffer;
-        const outputBuffer = event.outputBuffer;
         
-        // Copy input to output (for monitoring)
-        for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
-          const inputData = inputBuffer.getChannelData(channel);
-          const outputData = outputBuffer.getChannelData(channel);
-          outputData.set(inputData);
-        }
-
         // Send audio data to gateway
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           const audioData = inputBuffer.getChannelData(0);
+          
+          // Convert Float32Array to ArrayBuffer for WebSocket
           const buffer = new Float32Array(audioData);
           wsRef.current.send(buffer.buffer);
         }
@@ -311,10 +307,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
       // Setup audio processing
       await setupAudioProcessing();
 
-      // Start streaming
+      // Start streaming with program details
       ws.send(JSON.stringify({
         type: 'start_stream',
-        config: streamConfig
+        config: {
+          ...streamConfig,
+          title: title || 'Live Lecture',
+          lecturer: lecturer || 'Unknown'
+        }
       }));
 
       startDurationTimer();
