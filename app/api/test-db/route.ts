@@ -21,7 +21,7 @@ export async function GET() {
       {
         ok: false,
         error: 'Database connection failed',
-        details: error.message,
+        details: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       },
       { status: 500 }

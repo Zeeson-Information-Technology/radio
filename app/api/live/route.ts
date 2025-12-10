@@ -23,8 +23,8 @@ export async function GET() {
         isLive: false,
         isPaused: false,
         mount: "/stream",
-        title: null,
-        lecturer: null,
+        title: undefined,
+        lecturer: undefined,
         startedAt: null,
         pausedAt: null,
         updatedAt: new Date()
@@ -47,7 +47,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Live state API error:", error);
-    console.error("Error details:", error.message);
+    console.error("Error details:", error instanceof Error ? error.message : 'Unknown error');
     
     // Return fallback state on error
     return NextResponse.json(
