@@ -91,19 +91,40 @@ class BroadcastGateway {
     }
   }
 
-  handleConnection(ws, req) {
+  async handleConnection(ws, req) {
     const user = req.user;
     
     console.log(`🔌 New connection from ${user.email} (${user.role})`);
 
     // Check if someone is already broadcasting
     if (this.currentBroadcast) {
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: 'Another presenter is currently live. Please try again later.'
-      }));
-      ws.close();
-      return;
+      // Check if it's the same user trying to reconnect
+      if (this.currentBroadcast.user.userId === user.userId) {
+        console.log(`🔄 User ${user.email} reconnecting to existing session`);
+        
+        // Replace the old WebSocket with the new one
+        this.currentBroadcast.ws = ws;
+        
+        // Setup message handlers for new connection
+        ws.on('message', this.handleMessage.bind(this, ws, user));
+        ws.on('close', this.handleDisconnection.bind(this, user));
+        ws.on('error', this.handleError.bind(this, user));
+
+        // Send ready signal
+        ws.send(JSON.stringify({
+          type: 'ready',
+          message: 'Reconnected to existing broadcast session.'
+        }));
+        
+        return;
+      } else {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Another presenter (${this.currentBroadcast.user.email}) is currently live. Please try again later.`
+        }));
+        ws.close();
+        return;
+      }
     }
 
     // Set this as current broadcast
