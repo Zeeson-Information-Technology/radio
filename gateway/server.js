@@ -177,6 +177,10 @@ class BroadcastGateway {
         this.startStreaming(ws, user, data);
         break;
       
+      case 'reconnect_stream':
+        this.reconnectStreaming(ws, user, data);
+        break;
+      
       case 'stop_stream':
         this.stopStreaming(ws, user);
         break;
@@ -233,6 +237,53 @@ class BroadcastGateway {
     });
 
     this.startFFmpeg(ws, user, audioConfig);
+  }
+
+  async reconnectStreaming(ws, user, config = {}) {
+    console.log(`🔄 Reconnecting stream for ${user.email}`);
+
+    // If already streaming, just acknowledge the reconnection
+    if (this.isStreaming && this.ffmpegProcess) {
+      ws.send(JSON.stringify({
+        type: 'stream_started',
+        message: 'Reconnected to existing stream',
+        config: {
+          sampleRate: config.sampleRate || 44100,
+          channels: config.channels || 1,
+          bitrate: config.bitrate || 96
+        }
+      }));
+      return;
+    }
+
+    // If not streaming but database shows live, restart the stream
+    const liveState = await this.getLiveState();
+    if (liveState && liveState.isLive) {
+      console.log(`🎙️ Restarting stream for ${user.email} (session recovery)`);
+      
+      // Default audio config
+      const audioConfig = {
+        sampleRate: config.sampleRate || 44100,
+        channels: config.channels || 1,
+        bitrate: config.bitrate || 96
+      };
+
+      // Don't update startedAt - keep original time
+      await this.updateLiveState({
+        isLive: true,
+        isPaused: false,
+        title: config.title || liveState.title || 'Live Lecture',
+        lecturer: user.name || user.email,
+        // Keep original startedAt
+        startedAt: liveState.startedAt,
+        pausedAt: null
+      });
+
+      this.startFFmpeg(ws, user, audioConfig);
+    } else {
+      // No existing session, start new one
+      this.startStreaming(ws, user, config);
+    }
   }
 
   startFFmpeg(ws, user, audioConfig) {
@@ -387,6 +438,15 @@ class BroadcastGateway {
 
   handleError(user, error) {
     console.error(`❌ WebSocket error for ${user.email}:`, error);
+  }
+
+  async getLiveState() {
+    try {
+      return await LiveState.findOne();
+    } catch (error) {
+      console.error('❌ Error getting live state:', error);
+      return null;
+    }
   }
 
   async updateLiveState(stateData) {

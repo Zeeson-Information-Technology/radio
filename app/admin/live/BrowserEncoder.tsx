@@ -64,9 +64,36 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         if (response.ok) {
           const data = await response.json();
           if (data.isLive) {
-            // There's an active broadcast, show reconnect option
-            setConnectionState('error');
-            setErrorMessage(`There's an active broadcast by ${data.lecturer || 'someone'}. If this is your session, click "Reconnect to Resume".`);
+            // Check if this might be the current user's session
+            const tokenResponse = await fetch('/api/admin/live/broadcast-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (tokenResponse.ok) {
+              const tokenData = await tokenResponse.json();
+              const currentUserName = tokenData.user.name || tokenData.user.email;
+              
+              if (data.lecturer === currentUserName || data.lecturer === tokenData.user.email) {
+                // This is likely the current user's session
+                setConnectionState('error');
+                setErrorMessage(`You have an active broadcast session. Click "Reconnect to Resume" to continue your broadcast.`);
+                
+                // Calculate elapsed time
+                if (data.startedAt) {
+                  const startTime = new Date(data.startedAt).getTime();
+                  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                  setStreamDuration(elapsed);
+                  
+                  // Start duration timer from current elapsed time
+                  streamStartTimeRef.current = Date.now() - (elapsed * 1000);
+                }
+              } else {
+                // Someone else is broadcasting
+                setConnectionState('error');
+                setErrorMessage(`${data.lecturer || 'Another presenter'} is currently live. Please wait for them to finish.`);
+              }
+            }
           }
         }
       } catch (error) {
@@ -188,6 +215,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       case 'stream_started':
         setConnectionState('streaming');
+        setMessage('');
+        setErrorMessage('');
         onStreamStart?.();
         break;
 
@@ -314,6 +343,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     try {
       setConnectionState('connecting');
       setErrorMessage('');
+      setMessage('');
+
+      // Check if this is a reconnection to existing session
+      const isReconnection = errorMessage.includes('active broadcast session');
 
       // Get authentication token
       const token = await getAuthToken();
@@ -325,17 +358,37 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       // Setup audio processing
       await setupAudioProcessing();
 
-      // Start streaming with program details
-      ws.send(JSON.stringify({
-        type: 'start_stream',
-        config: {
-          ...streamConfig,
-          title: title || 'Live Lecture',
-          lecturer: lecturer || 'Unknown'
+      if (isReconnection) {
+        // For reconnection, send reconnect message
+        ws.send(JSON.stringify({
+          type: 'reconnect_stream',
+          config: {
+            ...streamConfig,
+            title: title || 'Live Lecture',
+            lecturer: lecturer || 'Unknown'
+          }
+        }));
+        
+        // Continue duration timer from where it left off
+        if (streamDuration > 0) {
+          durationIntervalRef.current = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - streamStartTimeRef.current) / 1000);
+            setStreamDuration(elapsed);
+          }, 1000);
         }
-      }));
-
-      startDurationTimer();
+      } else {
+        // New broadcast
+        ws.send(JSON.stringify({
+          type: 'start_stream',
+          config: {
+            ...streamConfig,
+            title: title || 'Live Lecture',
+            lecturer: lecturer || 'Unknown'
+          }
+        }));
+        
+        startDurationTimer();
+      }
 
     } catch (error) {
       console.error('❌ Start broadcast error:', error);
@@ -449,6 +502,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           <div className="text-2xl font-mono font-bold text-emerald-600">
             {formatDuration(streamDuration)}
           </div>
+          {streamDuration > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {errorMessage.includes('active broadcast session') ? 'Reconnected to existing session' : 'Live since start'}
+            </p>
+          )}
         </div>
       )}
 
