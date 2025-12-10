@@ -1,0 +1,29 @@
+[Unit]
+Description=Al-Manhaj Radio Broadcast Gateway
+Documentation=https://github.com/your-org/almanhaj-radio
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/almanhaj-gateway
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/almanhaj-gateway/.env
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/almanhaj-gateway
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=almanhaj-gateway
+
+[Install]
+WantedBy=multi-user.target

@@ -112,7 +112,7 @@ export default function HomePage() {
                 <div className="text-sm text-emerald-200/70 mt-1">Always On</div>
               </div>
               <div>
-                <div className="text-3xl md:text-4xl font-bold text-emerald-300">{scheduleCount}+</div>
+                <div className="text-3xl md:text-4xl font-bold text-emerald-300">{scheduleCount >= 10 ? `${scheduleCount}+` : '10+'}</div>
                 <div className="text-sm text-emerald-200/70 mt-1">Weekly Programs</div>
               </div>
               <div>
