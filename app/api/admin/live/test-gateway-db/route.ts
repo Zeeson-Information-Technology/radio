@@ -27,7 +27,7 @@ export async function GET() {
   } catch (error) {
     console.error('Database test error:', error);
     return NextResponse.json(
-      { error: 'Database connection failed', details: error.message },
+      { error: 'Database connection failed', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Database update error:', error);
     return NextResponse.json(
-      { error: 'Database update failed', details: error.message },
+      { error: 'Database update failed', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
