@@ -6,6 +6,8 @@ interface BrowserEncoderProps {
   onStreamStart?: () => void;
   onStreamStop?: () => void;
   onError?: (error: string) => void;
+  title?: string;
+  lecturer?: string;
 }
 
 interface StreamConfig {
@@ -16,12 +18,13 @@ interface StreamConfig {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error';
 
-export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }: BrowserEncoderProps) {
+export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer }: BrowserEncoderProps) {
   // State management
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [audioLevel, setAudioLevel] = useState(0);
   const [streamDuration, setStreamDuration] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [message, setMessage] = useState('');
   const [isSupported, setIsSupported] = useState(true);
 
   // Refs for audio processing
@@ -40,7 +43,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
     bitrate: 96
   };
 
-  // Check browser support on mount
+  // Check browser support and existing session on mount
   useEffect(() => {
     const checkSupport = () => {
       const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
@@ -55,7 +58,51 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
       }
     };
 
+    const checkExistingSession = async () => {
+      try {
+        const response = await fetch('/api/live');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.isLive) {
+            // Check if this might be the current user's session
+            const tokenResponse = await fetch('/api/admin/live/broadcast-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (tokenResponse.ok) {
+              const tokenData = await tokenResponse.json();
+              const currentUserName = tokenData.user.name || tokenData.user.email;
+              
+              if (data.lecturer === currentUserName || data.lecturer === tokenData.user.email) {
+                // This is likely the current user's session
+                setConnectionState('error');
+                setErrorMessage(`You have an active broadcast session. Click "Reconnect to Resume" to continue your broadcast.`);
+                
+                // Calculate elapsed time
+                if (data.startedAt) {
+                  const startTime = new Date(data.startedAt).getTime();
+                  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                  setStreamDuration(elapsed);
+                  
+                  // Start duration timer from current elapsed time
+                  streamStartTimeRef.current = Date.now() - (elapsed * 1000);
+                }
+              } else {
+                // Someone else is broadcasting
+                setConnectionState('error');
+                setErrorMessage(`${data.lecturer || 'Another presenter'} is currently live. Please wait for them to finish.`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking existing session:', error);
+      }
+    };
+
     checkSupport();
+    checkExistingSession();
   }, []);
 
   // Cleanup on unmount
@@ -168,6 +215,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
 
       case 'stream_started':
         setConnectionState('streaming');
+        setMessage('');
+        setErrorMessage('');
         onStreamStart?.();
         break;
 
@@ -224,26 +273,20 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
 
-      // Connect audio graph
+      // Connect audio graph (NO feedback - don't connect to destination)
       source.connect(analyser);
       source.connect(processor);
-      processor.connect(audioContext.destination);
+      // DON'T connect processor to destination to prevent feedback
 
       // Process audio data
       processor.onaudioprocess = (event) => {
         const inputBuffer = event.inputBuffer;
-        const outputBuffer = event.outputBuffer;
         
-        // Copy input to output (for monitoring)
-        for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
-          const inputData = inputBuffer.getChannelData(channel);
-          const outputData = outputBuffer.getChannelData(channel);
-          outputData.set(inputData);
-        }
-
         // Send audio data to gateway
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           const audioData = inputBuffer.getChannelData(0);
+          
+          // Convert Float32Array to ArrayBuffer for WebSocket
           const buffer = new Float32Array(audioData);
           wsRef.current.send(buffer.buffer);
         }
@@ -300,6 +343,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
     try {
       setConnectionState('connecting');
       setErrorMessage('');
+      setMessage('');
+
+      // Check if this is a reconnection to existing session
+      const isReconnection = errorMessage.includes('active broadcast session');
 
       // Get authentication token
       const token = await getAuthToken();
@@ -311,13 +358,37 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
       // Setup audio processing
       await setupAudioProcessing();
 
-      // Start streaming
-      ws.send(JSON.stringify({
-        type: 'start_stream',
-        config: streamConfig
-      }));
-
-      startDurationTimer();
+      if (isReconnection) {
+        // For reconnection, send reconnect message
+        ws.send(JSON.stringify({
+          type: 'reconnect_stream',
+          config: {
+            ...streamConfig,
+            title: title || 'Live Lecture',
+            lecturer: lecturer || 'Unknown'
+          }
+        }));
+        
+        // Continue duration timer from where it left off
+        if (streamDuration > 0) {
+          durationIntervalRef.current = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - streamStartTimeRef.current) / 1000);
+            setStreamDuration(elapsed);
+          }, 1000);
+        }
+      } else {
+        // New broadcast
+        ws.send(JSON.stringify({
+          type: 'start_stream',
+          config: {
+            ...streamConfig,
+            title: title || 'Live Lecture',
+            lecturer: lecturer || 'Unknown'
+          }
+        }));
+        
+        startDurationTimer();
+      }
 
     } catch (error) {
       console.error('❌ Start broadcast error:', error);
@@ -335,6 +406,26 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
     stopDurationTimer();
     cleanup();
     setConnectionState('disconnected');
+  };
+
+  const forceStopBroadcast = async () => {
+    try {
+      // Force stop via API call
+      const response = await fetch('/api/admin/live/force-stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.ok) {
+        setConnectionState('disconnected');
+        setErrorMessage('');
+        setMessage('Broadcast forcefully stopped. You can start a new session.');
+      } else {
+        setErrorMessage('Failed to force stop broadcast. Please try again.');
+      }
+    } catch (error) {
+      setErrorMessage('Error stopping broadcast. Please try again.');
+    }
   };
 
   const formatDuration = (seconds: number): string => {
@@ -411,6 +502,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
           <div className="text-2xl font-mono font-bold text-emerald-600">
             {formatDuration(streamDuration)}
           </div>
+          {streamDuration > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {errorMessage.includes('active broadcast session') ? 'Reconnected to existing session' : 'Live since start'}
+            </p>
+          )}
         </div>
       )}
 
@@ -421,15 +517,46 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError }:
         </div>
       )}
 
+      {/* Success Message */}
+      {message && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-sm text-green-800">{message}</p>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="flex gap-4">
-        {connectionState === 'disconnected' || connectionState === 'error' ? (
+        {connectionState === 'disconnected' ? (
           <button
             onClick={startBroadcast}
             disabled={!isSupported}
             className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             🎙️ Start Broadcasting
+          </button>
+        ) : connectionState === 'error' && errorMessage.includes('active broadcast') ? (
+          <div className="flex gap-2 flex-1">
+            <button
+              onClick={startBroadcast}
+              disabled={!isSupported}
+              className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              🔄 Reconnect to Resume
+            </button>
+            <button
+              onClick={forceStopBroadcast}
+              className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
+            >
+              🛑 Force Stop
+            </button>
+          </div>
+        ) : connectionState === 'error' ? (
+          <button
+            onClick={startBroadcast}
+            disabled={!isSupported}
+            className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            🎙️ Try Again
           </button>
         ) : connectionState === 'streaming' ? (
           <button
