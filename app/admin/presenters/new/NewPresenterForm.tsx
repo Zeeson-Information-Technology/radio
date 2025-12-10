@@ -9,6 +9,7 @@ interface NewPresenterFormProps {
 }
 
 export default function NewPresenterForm({ currentUserRole }: NewPresenterFormProps) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "presenter">("presenter");
   const [error, setError] = useState("");
@@ -28,7 +29,7 @@ export default function NewPresenterForm({ currentUserRole }: NewPresenterFormPr
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, role }),
+        body: JSON.stringify({ name, email, role }),
       });
 
       const data = await response.json();
@@ -164,6 +165,25 @@ export default function NewPresenterForm({ currentUserRole }: NewPresenterFormPr
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label
+              htmlFor="name"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Full Name
+            </label>
+            <input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              disabled={isLoading}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
+              placeholder="Sheikh Ahmad"
+            />
+          </div>
+
           <div>
             <label
               htmlFor="email"

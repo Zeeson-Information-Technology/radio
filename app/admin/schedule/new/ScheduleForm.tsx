@@ -23,6 +23,10 @@ export default function ScheduleForm() {
   const [active, setActive] = useState(true);
   const [isNigeriaTime, setIsNigeriaTime] = useState(true);
   const [timezone, setTimezone] = useState("Africa/Lagos");
+  const [recurringType, setRecurringType] = useState<"once" | "weekly" | "monthly" | "quarterly">("weekly");
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [hasEndDate, setHasEndDate] = useState(false);
+  const [endDate, setEndDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -46,6 +50,9 @@ export default function ScheduleForm() {
           lecturer,
           topic,
           active,
+          recurringType,
+          startDate,
+          endDate: hasEndDate ? endDate : null,
         }),
       });
 
@@ -258,6 +265,100 @@ export default function ScheduleForm() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
               placeholder="e.g., Tafsir of Surah Al-Baqarah"
             />
+          </div>
+
+          {/* Recurring Type */}
+          <div>
+            <label
+              htmlFor="recurringType"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Program Duration
+            </label>
+            <select
+              id="recurringType"
+              value={recurringType}
+              onChange={(e) => setRecurringType(e.target.value as "once" | "weekly" | "monthly" | "quarterly")}
+              disabled={isSubmitting}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
+            >
+              <option value="once">One-time Event</option>
+              <option value="weekly">Weekly (Every week)</option>
+              <option value="monthly">Monthly (Every month)</option>
+              <option value="quarterly">Quarterly (Every 3 months)</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {recurringType === "once" && "This program will only occur once"}
+              {recurringType === "weekly" && "This program will repeat every week on the selected day"}
+              {recurringType === "monthly" && "This program will repeat every month on the selected day"}
+              {recurringType === "quarterly" && "This program will repeat every 3 months on the selected day"}
+            </p>
+          </div>
+
+          {/* Start Date */}
+          <div>
+            <label
+              htmlFor="startDate"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Start Date
+            </label>
+            <input
+              id="startDate"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              disabled={isSubmitting}
+              required
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              When should this program start appearing in the schedule?
+            </p>
+          </div>
+
+          {/* End Date */}
+          <div className="space-y-3">
+            <div className="flex items-center">
+              <input
+                id="hasEndDate"
+                type="checkbox"
+                checked={hasEndDate}
+                onChange={(e) => setHasEndDate(e.target.checked)}
+                disabled={isSubmitting}
+                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+              />
+              <label
+                htmlFor="hasEndDate"
+                className="ml-2 text-sm text-gray-700"
+              >
+                Set an end date for this program
+              </label>
+            </div>
+
+            {hasEndDate && (
+              <div>
+                <label
+                  htmlFor="endDate"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  End Date
+                </label>
+                <input
+                  id="endDate"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  disabled={isSubmitting}
+                  min={startDate}
+                  required={hasEndDate}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition disabled:bg-gray-100"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  When should this program stop appearing? Leave unchecked for indefinite programs.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Active Checkbox */}
