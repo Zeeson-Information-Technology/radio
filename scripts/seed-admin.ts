@@ -48,6 +48,7 @@ async function seedAdmin() {
       const superAdminHash = await hashPassword(superAdminPassword);
       
       const superAdmin = await AdminUser.create({
+        name: "Ibrahim Saliman Zainab",
         email: superAdminEmail.toLowerCase(),
         passwordHash: superAdminHash,
         role: "super_admin",
@@ -81,6 +82,7 @@ async function seedAdmin() {
         const passwordHash = await hashPassword(password);
 
         const admin = await AdminUser.create({
+          name: process.env.ADMIN_NAME || "Admin User",
           email: email.toLowerCase(),
           passwordHash,
           role: "admin",

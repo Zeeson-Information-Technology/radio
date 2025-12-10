@@ -116,7 +116,18 @@ export async function PUT(
 
     // Parse request body
     const body = await request.json();
-    const { dayOfWeek, startTime, timezone, durationMinutes, lecturer, topic, active } = body;
+    const { 
+      dayOfWeek, 
+      startTime, 
+      timezone, 
+      durationMinutes, 
+      lecturer, 
+      topic, 
+      active,
+      recurringType,
+      startDate,
+      endDate
+    } = body;
 
     // Find and update schedule
     const schedule = await Schedule.findByIdAndUpdate(
@@ -129,6 +140,9 @@ export async function PUT(
         lecturer,
         topic,
         active,
+        recurringType: recurringType || "weekly",
+        startDate: startDate ? new Date(startDate) : undefined,
+        endDate: endDate ? new Date(endDate) : null,
       },
       { new: true, runValidators: true }
     );

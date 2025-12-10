@@ -8,6 +8,7 @@ import { SerializedAdmin } from "@/lib/types/admin";
 export function serializeAdmin(admin: IAdminUser): SerializedAdmin {
   return {
     _id: admin._id.toString(),
+    name: admin.name || "Unknown",
     email: admin.email,
     role: admin.role,
     mustChangePassword: admin.mustChangePassword,

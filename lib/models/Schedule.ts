@@ -13,6 +13,10 @@ export interface ISchedule extends Document {
   lecturer: string;
   topic: string;
   active: boolean;
+  createdBy?: mongoose.Types.ObjectId; // User who created this schedule (optional for legacy)
+  recurringType?: "once" | "weekly" | "monthly" | "quarterly"; // How often it repeats
+  startDate?: Date; // When the program starts
+  endDate?: Date | null; // When the program ends (null = indefinite)
 }
 
 const ScheduleSchema = new Schema<ISchedule>(
@@ -60,6 +64,25 @@ const ScheduleSchema = new Schema<ISchedule>(
     active: {
       type: Boolean,
       default: true,
+    },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminUser",
+      required: false, // Optional for backward compatibility with existing schedules
+    },
+    recurringType: {
+      type: String,
+      enum: ["once", "weekly", "monthly", "quarterly"],
+      default: "weekly",
+    },
+    startDate: {
+      type: Date,
+      required: false, // Optional for backward compatibility
+      default: Date.now,
+    },
+    endDate: {
+      type: Date,
+      default: null,
     },
   },
   {
