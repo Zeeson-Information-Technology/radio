@@ -41,8 +41,8 @@ export async function POST() {
         isLive: false,
         isPaused: false,
         mount: '/stream',
-        title: null,
-        lecturer: null,
+        title: undefined,
+        lecturer: undefined,
         startedAt: null,
         pausedAt: null,
         updatedAt: new Date()
@@ -50,8 +50,8 @@ export async function POST() {
     } else {
       liveState.isLive = false;
       liveState.isPaused = false;
-      liveState.title = null;
-      liveState.lecturer = null;
+      liveState.title = undefined;
+      liveState.lecturer = undefined;
       liveState.startedAt = null;
       liveState.pausedAt = null;
       liveState.updatedAt = new Date();
