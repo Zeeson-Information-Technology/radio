@@ -26,6 +26,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [errorMessage, setErrorMessage] = useState('');
   const [message, setMessage] = useState('');
   const [isSupported, setIsSupported] = useState(true);
+  const [isMonitoring, setIsMonitoring] = useState(false);
 
   // Refs for audio processing
   const wsRef = useRef<WebSocket | null>(null);
@@ -273,10 +274,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
 
-      // Connect audio graph (NO feedback - don't connect to destination)
+      // Connect audio graph
       source.connect(analyser);
       source.connect(processor);
-      // DON'T connect processor to destination to prevent feedback
+      
+      // Optional monitoring (admin can hear themselves when enabled)
+      if (isMonitoring) {
+        source.connect(audioContext.destination);
+      }
 
       // Process audio data
       processor.onaudioprocess = (event) => {
@@ -291,9 +296,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           wsRef.current.send(buffer.buffer);
         }
 
-        // Update audio level meter
+        // Update audio level meter (this should work regardless of destination connection)
         updateAudioLevel(analyser);
       };
+
+      // Ensure the processor is connected to destination for processing to work
+      // (This doesn't mean audio will be heard - that's controlled by the source connection)
+      processor.connect(audioContext.destination);
 
       // Store references
       mediaStreamRef.current = stream;
@@ -312,8 +321,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(dataArray);
     
-    const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
-    const level = (average / 255) * 100;
+    // Calculate RMS (Root Mean Square) for more accurate level detection
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      sum += dataArray[i] * dataArray[i];
+    }
+    const rms = Math.sqrt(sum / dataArray.length);
+    const level = (rms / 255) * 100;
     
     setAudioLevel(level);
   };
@@ -477,9 +491,41 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       {/* Audio Level Meter */}
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Audio Level
-        </label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium text-gray-700">
+            Audio Level
+          </label>
+          
+          {/* Monitoring Toggle */}
+          <button
+            onClick={() => {
+              setIsMonitoring(!isMonitoring);
+              // Update audio routing if currently streaming
+              if (audioContextRef.current && mediaStreamRef.current) {
+                const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
+                if (isMonitoring) {
+                  // Disconnect monitoring
+                  try { source.disconnect(audioContextRef.current.destination); } catch (e) {}
+                } else {
+                  // Connect monitoring
+                  source.connect(audioContextRef.current.destination);
+                }
+              }
+            }}
+            className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+              isMonitoring 
+                ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
+                : 'bg-gray-100 text-gray-600 border border-gray-300'
+            }`}
+            title={isMonitoring ? "You can hear yourself (may cause echo)" : "Click to hear yourself while broadcasting"}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728" />
+            </svg>
+            {isMonitoring ? 'Monitor ON' : 'Monitor OFF'}
+          </button>
+        </div>
+        
         <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden">
           <div 
             className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-100"
