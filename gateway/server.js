@@ -291,7 +291,7 @@ class BroadcastGateway {
     
     // FFmpeg command to encode PCM to MP3 and stream to Icecast
     const ffmpegArgs = [
-      '-f', 's16le', // Input format: 16-bit signed PCM (more compatible)
+      '-f', 's16le', // Input format: 16-bit signed PCM little-endian
       '-ar', audioConfig.sampleRate.toString(),
       '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0', // Read from stdin

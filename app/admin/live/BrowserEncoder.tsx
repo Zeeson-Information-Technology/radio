@@ -27,6 +27,9 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [message, setMessage] = useState('');
   const [isSupported, setIsSupported] = useState(true);
   const [isMonitoring, setIsMonitoring] = useState(false);
+  
+  // Audio processing throttling
+  const lastAudioSendRef = useRef<number>(0);
 
   // Refs for audio processing
   const wsRef = useRef<WebSocket | null>(null);
@@ -34,6 +37,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const streamStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -133,9 +138,19 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     }
 
     // Clean up audio context
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
+    }
+
+    if (gainNodeRef.current) {
+      gainNodeRef.current.disconnect();
+      gainNodeRef.current = null;
     }
 
     if (audioContextRef.current) {
@@ -231,10 +246,24 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         break;
 
       case 'stream_error':
-      case 'error':
+        console.error('Stream error from gateway:', data.message);
         setConnectionState('error');
         setErrorMessage(data.message || 'Stream error occurred');
         onError?.(data.message);
+        break;
+
+      case 'error':
+        // Don't treat "Failed to process message" as a fatal error
+        if (data.message === 'Failed to process message') {
+          console.warn('⚠️ Audio processing warning:', data.message);
+          // Don't change connection state or show error to user
+          // The stream can continue working despite occasional processing errors
+        } else {
+          console.error('Gateway error:', data.message);
+          setConnectionState('error');
+          setErrorMessage(data.message || 'Stream error occurred');
+          onError?.(data.message);
+        }
         break;
 
       case 'pong':
@@ -269,14 +298,22 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const gainNode = audioContext.createGain();
 
       // Configure analyser for level meter
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
 
+      // Configure gain node for silent processing (needed for ScriptProcessor to work)
+      gainNode.gain.value = 0; // Silent - no audio output
+
       // Connect audio graph
       source.connect(analyser);
       source.connect(processor);
+      
+      // Connect processor to silent gain node to destination (required for processing)
+      processor.connect(gainNode);
+      gainNode.connect(audioContext.destination);
       
       // Optional monitoring (admin can hear themselves when enabled)
       if (isMonitoring) {
@@ -287,28 +324,58 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       processor.onaudioprocess = (event) => {
         const inputBuffer = event.inputBuffer;
         
-        // Send audio data to gateway
+        // Send audio data to gateway (with throttling to prevent overwhelming)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          const audioData = inputBuffer.getChannelData(0);
-          
-          // Convert Float32Array to ArrayBuffer for WebSocket
-          const buffer = new Float32Array(audioData);
-          wsRef.current.send(buffer.buffer);
+          try {
+            const now = Date.now();
+            // Throttle to ~20ms intervals to prevent overwhelming the gateway
+            if (now - lastAudioSendRef.current < 20) {
+              return;
+            }
+            lastAudioSendRef.current = now;
+            
+            const audioData = inputBuffer.getChannelData(0);
+            
+            // Skip empty or invalid audio frames
+            if (!audioData || audioData.length === 0) {
+              return;
+            }
+            
+            // Convert Float32Array (-1.0 to 1.0) to Int16Array (-32768 to 32767) for s16le format
+            const int16Data = new Int16Array(audioData.length);
+            for (let i = 0; i < audioData.length; i++) {
+              // Handle NaN and Infinity values
+              let sample = audioData[i];
+              if (!isFinite(sample)) {
+                sample = 0;
+              }
+              
+              // Clamp to [-1, 1] and convert to 16-bit signed integer
+              sample = Math.max(-1, Math.min(1, sample));
+              int16Data[i] = Math.round(sample * 32767);
+            }
+            
+            // Only send if we have valid data
+            if (int16Data.length > 0) {
+              wsRef.current.send(int16Data.buffer);
+            }
+          } catch (error) {
+            console.error('Audio processing error:', error);
+            // Don't stop streaming on audio processing errors
+          }
         }
 
-        // Update audio level meter (this should work regardless of destination connection)
+        // Update audio level meter
         updateAudioLevel(analyser);
       };
-
-      // Ensure the processor is connected to destination for processing to work
-      // (This doesn't mean audio will be heard - that's controlled by the source connection)
-      processor.connect(audioContext.destination);
 
       // Store references
       mediaStreamRef.current = stream;
       audioContextRef.current = audioContext;
       processorRef.current = processor;
       analyserRef.current = analyser;
+      sourceRef.current = source;
+      gainNodeRef.current = gainNode;
 
       return stream;
     } catch (error) {
@@ -499,18 +566,24 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           {/* Monitoring Toggle */}
           <button
             onClick={() => {
-              setIsMonitoring(!isMonitoring);
-              // Update audio routing if currently streaming
-              if (audioContextRef.current && mediaStreamRef.current) {
-                const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
+              if (sourceRef.current && audioContextRef.current) {
                 if (isMonitoring) {
                   // Disconnect monitoring
-                  try { source.disconnect(audioContextRef.current.destination); } catch (e) {}
+                  try { 
+                    sourceRef.current.disconnect(audioContextRef.current.destination); 
+                  } catch (e) {
+                    console.log('Already disconnected from destination');
+                  }
                 } else {
                   // Connect monitoring
-                  source.connect(audioContextRef.current.destination);
+                  try {
+                    sourceRef.current.connect(audioContextRef.current.destination);
+                  } catch (e) {
+                    console.log('Could not connect to destination');
+                  }
                 }
               }
+              setIsMonitoring(!isMonitoring);
             }}
             className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
               isMonitoring 
