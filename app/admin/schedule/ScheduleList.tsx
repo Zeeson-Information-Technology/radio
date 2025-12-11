@@ -90,178 +90,278 @@ export default function ScheduleList({ admin }: ScheduleListProps) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-16">
-      <div className="bg-white rounded-lg shadow-lg p-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Schedule Management
-            </h1>
-            <p className="text-sm text-gray-600">
-              Manage lecture schedule for the radio
-            </p>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-16">
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+          {/* Header */}
+          <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 border-b border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+              <div className="flex-1">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+                  Schedule Management
+                </h1>
+                <p className="text-sm text-gray-600">
+                  Manage lecture schedule for the radio
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                <button
+                  onClick={() => router.push("/admin/live")}
+                  className="w-full sm:w-auto px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-center"
+                >
+                  Back to Dashboard
+                </button>
+                <button
+                  onClick={() => router.push("/admin/schedule/new")}
+                  className="w-full sm:w-auto px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors text-center"
+                >
+                  Add Schedule Entry
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => router.push("/admin/live")}
-              className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              Back to Dashboard
-            </button>
-            <button
-              onClick={() => router.push("/admin/schedule/new")}
-              className="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-            >
-              Add Schedule Entry
-            </button>
-          </div>
-        </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-gray-200">
-          <button
-            onClick={() => setFilter("all")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              filter === "all"
-                ? "text-green-600 border-green-600"
-                : "text-gray-600 border-transparent hover:text-gray-900"
-            }`}
-          >
-            All Schedules
-          </button>
-          <button
-            onClick={() => setFilter("mine")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              filter === "mine"
-                ? "text-green-600 border-green-600"
-                : "text-gray-600 border-transparent hover:text-gray-900"
-            }`}
-          >
-            My Schedules
-          </button>
-        </div>
+          {/* Filter Tabs */}
+          <div className="px-4 sm:px-6 lg:px-8 py-4 border-b border-gray-200">
+            <div className="flex gap-1 sm:gap-2">
+              <button
+                onClick={() => setFilter("all")}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-sm font-medium transition-colors border-b-2 text-center ${
+                  filter === "all"
+                    ? "text-green-600 border-green-600"
+                    : "text-gray-600 border-transparent hover:text-gray-900"
+                }`}
+              >
+                All Schedules
+              </button>
+              <button
+                onClick={() => setFilter("mine")}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-sm font-medium transition-colors border-b-2 text-center ${
+                  filter === "mine"
+                    ? "text-green-600 border-green-600"
+                    : "text-gray-600 border-transparent hover:text-gray-900"
+                }`}
+              >
+                My Schedules
+              </button>
+            </div>
+          </div>
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
+          {/* Content Area */}
+          <div className="px-4 sm:px-6 lg:px-8 py-6">
+            {/* Error Message */}
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
 
-        {/* Loading State */}
-        {isLoading ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600">Loading schedules...</p>
-          </div>
-        ) : schedules.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600 mb-4">No schedule entries yet.</p>
-            <button
-              onClick={() => router.push("/admin/schedule/new")}
-              className="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-            >
-              Create First Entry
-            </button>
-          </div>
-        ) : (
-          /* Schedule Table */
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Day</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Time & Timezone</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Duration</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Lecturer</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Topic</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Recurring</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Created By</th>
-                  <th className="text-center py-3 px-4 font-semibold text-gray-700">Active</th>
-                  <th className="text-right py-3 px-4 font-semibold text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schedules.map((schedule) => {
-                  const isMySchedule = schedule.createdBy?._id === currentUserId;
-                  return (
-                    <tr key={schedule._id} className={`border-b border-gray-100 hover:bg-gray-50 ${isMySchedule ? 'bg-blue-50/30' : ''}`}>
-                      <td className="py-3 px-4 text-gray-900">
-                        {DAYS[schedule.dayOfWeek]}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="text-gray-900 font-medium">{schedule.startTime}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {schedule.timezone === "Africa/Lagos" ? "🇳🇬 " : ""}
-                          {getTimezoneDisplay(schedule.timezone || "Africa/Lagos")}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-gray-900">
-                        {schedule.durationMinutes} min
-                      </td>
-                      <td className="py-3 px-4 text-gray-900">
-                        {schedule.lecturer}
-                      </td>
-                      <td className="py-3 px-4 text-gray-900">
-                        {schedule.topic}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="text-gray-900 capitalize">{schedule.recurringType || "weekly"}</div>
-                        {schedule.endDate && (
-                          <div className="text-xs text-gray-500 mt-0.5">
-                            Until {new Date(schedule.endDate).toLocaleDateString()}
+            {/* Loading State */}
+            {isLoading ? (
+              <div className="text-center py-12">
+                <p className="text-gray-600">Loading schedules...</p>
+              </div>
+            ) : schedules.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-600 mb-4">No schedule entries yet.</p>
+                <button
+                  onClick={() => router.push("/admin/schedule/new")}
+                  className="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Create First Entry
+                </button>
+              </div>
+            ) : (
+              /* Schedule List - Responsive Design */
+              <>
+                {/* Desktop Table View (hidden on mobile) */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Day</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Time & Timezone</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Duration</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Lecturer</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Topic</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Recurring</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Created By</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Active</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {schedules.map((schedule) => {
+                        const isMySchedule = schedule.createdBy?._id === currentUserId;
+                        return (
+                          <tr key={schedule._id} className={`border-b border-gray-100 hover:bg-gray-50 ${isMySchedule ? 'bg-blue-50/30' : ''}`}>
+                            <td className="py-3 px-4 text-gray-900">
+                              {DAYS[schedule.dayOfWeek]}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-gray-900 font-medium">{schedule.startTime}</div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {schedule.timezone === "Africa/Lagos" ? "🇳🇬 " : ""}
+                                {getTimezoneDisplay(schedule.timezone || "Africa/Lagos")}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-gray-900">
+                              {schedule.durationMinutes} min
+                            </td>
+                            <td className="py-3 px-4 text-gray-900">
+                              {schedule.lecturer}
+                            </td>
+                            <td className="py-3 px-4 text-gray-900">
+                              {schedule.topic}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-gray-900 capitalize">{schedule.recurringType || "weekly"}</div>
+                              {schedule.endDate && (
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                  Until {new Date(schedule.endDate).toLocaleDateString()}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-gray-900 text-sm font-medium">
+                                {schedule.createdBy?.name || "Unknown"}
+                                {isMySchedule && (
+                                  <span className="ml-2 text-xs text-blue-600 font-semibold">(You)</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {schedule.createdBy?.email || ""}
+                              </div>
+                              <div className="text-xs text-gray-500 capitalize">
+                                {schedule.createdBy?.role || ""}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span
+                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                                  schedule.active
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-gray-100 text-gray-800"
+                                }`}
+                              >
+                                {schedule.active ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => router.push(`/admin/schedule/${schedule._id}/edit`)}
+                                  className="px-3 py-1 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(schedule._id)}
+                                  disabled={deleteId === schedule._id}
+                                  className="px-3 py-1 text-sm text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {deleteId === schedule._id ? "Deleting..." : "Delete"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Card View (hidden on desktop) */}
+                <div className="lg:hidden space-y-4">
+                  {schedules.map((schedule) => {
+                    const isMySchedule = schedule.createdBy?._id === currentUserId;
+                    return (
+                      <div
+                        key={schedule._id}
+                        className={`bg-white border rounded-lg p-4 shadow-sm ${
+                          isMySchedule ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200'
+                        }`}
+                      >
+                        {/* Header Row */}
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-gray-900">
+                                {DAYS[schedule.dayOfWeek]}
+                              </span>
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  schedule.active
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-gray-100 text-gray-800"
+                                }`}
+                              >
+                                {schedule.active ? "Active" : "Inactive"}
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              {schedule.startTime} • {schedule.durationMinutes} min
+                            </div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              {schedule.timezone === "Africa/Lagos" ? "🇳🇬 " : ""}
+                              {getTimezoneDisplay(schedule.timezone || "Africa/Lagos")}
+                            </div>
                           </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="text-gray-900 text-sm font-medium">
-                          {schedule.createdBy?.name || "Unknown"}
-                          {isMySchedule && (
-                            <span className="ml-2 text-xs text-blue-600 font-semibold">(You)</span>
-                          )}
+                          <div className="flex gap-2 ml-4">
+                            <button
+                              onClick={() => router.push(`/admin/schedule/${schedule._id}/edit`)}
+                              className="px-3 py-1 text-xs text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(schedule._id)}
+                              disabled={deleteId === schedule._id}
+                              className="px-3 py-1 text-xs text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {deleteId === schedule._id ? "..." : "Delete"}
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {schedule.createdBy?.email || ""}
+
+                        {/* Content */}
+                        <div className="space-y-2">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {schedule.topic}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              by {schedule.lecturer}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                            <div>
+                              <span className="font-medium">Recurring:</span> {schedule.recurringType || "weekly"}
+                            </div>
+                            {schedule.endDate && (
+                              <div>
+                                <span className="font-medium">Until:</span> {new Date(schedule.endDate).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-xs text-gray-500 pt-2 border-t border-gray-100">
+                            <span className="font-medium">Created by:</span> {schedule.createdBy?.name || "Unknown"}
+                            {isMySchedule && (
+                              <span className="ml-2 text-blue-600 font-semibold">(You)</span>
+                            )}
+                            <span className="ml-2 capitalize">({schedule.createdBy?.role || ""})</span>
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 capitalize">
-                          {schedule.createdBy?.role || ""}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                            schedule.active
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}
-                        >
-                          {schedule.active ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => router.push(`/admin/schedule/${schedule._id}/edit`)}
-                            className="px-3 py-1 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(schedule._id)}
-                            disabled={deleteId === schedule._id}
-                            className="px-3 py-1 text-sm text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {deleteId === schedule._id ? "Deleting..." : "Delete"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
