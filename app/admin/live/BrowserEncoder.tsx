@@ -669,7 +669,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               </svg>
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-white">Browser Broadcasting</h2>
+              <h2 className="text-2xl font-bold text-white">Al-Manhaj Radio</h2>
               <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full border border-white/30 mt-1">
                 <span className="text-sm font-semibold text-white">{getStatusText()}</span>
               </div>
