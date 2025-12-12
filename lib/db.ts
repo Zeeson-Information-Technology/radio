@@ -29,15 +29,19 @@ if (!global.mongooseCache) {
 export async function connectDB(): Promise<typeof mongoose> {
   // Return existing connection if available
   if (cached.conn) {
+    console.log("🔍 DB: Using cached connection");
     return cached.conn;
   }
 
   // Check for MongoDB URI
   if (!config.mongodbUri) {
+    console.error("❌ DB: MONGODB_URI is not defined");
     throw new Error(
       "MONGODB_URI is not defined in environment variables. Please add it to .env.local"
     );
   }
+  
+  console.log("🔍 DB: MongoDB URI found, connecting...");
 
   // Create new connection promise if not exists
   if (!cached.promise) {
@@ -49,8 +53,11 @@ export async function connectDB(): Promise<typeof mongoose> {
   }
 
   try {
+    console.log("🔍 DB: Awaiting connection promise...");
     cached.conn = await cached.promise;
+    console.log("✅ DB: Connected successfully");
   } catch (e) {
+    console.error("❌ DB: Connection failed", e);
     cached.promise = null;
     throw e;
   }
