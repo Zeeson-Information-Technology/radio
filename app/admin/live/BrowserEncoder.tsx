@@ -16,7 +16,7 @@ interface StreamConfig {
   bitrate: number;
 }
 
-type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error';
+type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'paused' | 'error';
 
 export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer }: BrowserEncoderProps) {
   // State management
@@ -79,11 +79,51 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             if (tokenResponse.ok) {
               const tokenData = await tokenResponse.json();
               const currentUserName = tokenData.user.name || tokenData.user.email;
+              const currentUserEmail = tokenData.user.email;
               
-              if (data.lecturer === currentUserName || data.lecturer === tokenData.user.email) {
-                // This is likely the current user's session
-                setConnectionState('error');
-                setErrorMessage(`You have an active broadcast session. Click "Reconnect to Resume" to continue your broadcast.`);
+              // Check if the live session belongs to current user
+              // Gateway stores lecturer as: user.name || user.email
+              const isCurrentUserSession = 
+                data.lecturer === currentUserName || 
+                data.lecturer === currentUserEmail ||
+                data.lecturer === tokenData.user.name;
+              
+              if (isCurrentUserSession) {
+                // This is the current user's session
+                console.log('🔄 Detected existing session for current user:', data.lecturer);
+                
+                if (data.isPaused) {
+                  // Session is already paused
+                  setConnectionState('paused');
+                  setMessage(`Your broadcast is paused. Click "Resume" to continue.`);
+                } else {
+                  // Session is live but admin reloaded - auto-pause it
+                  console.log('📄 Admin page reloaded during live broadcast - auto-pausing');
+                  setConnectionState('paused');
+                  setMessage(`Broadcast auto-paused due to page reload. Click "Resume" to continue.`);
+                  
+                  // Auto-pause the broadcast on the gateway side
+                  try {
+                    const token = await getAuthToken();
+                    const ws = await connectWebSocket(token);
+                    ws.send(JSON.stringify({ type: 'pause_stream' }));
+                    wsRef.current = ws;
+                    
+                    // Setup message handlers for the paused connection
+                    ws.on('message', (message) => {
+                      try {
+                        const data = JSON.parse(message.toString());
+                        handleGatewayMessage(data);
+                      } catch (error) {
+                        console.error('Error parsing gateway message:', error);
+                      }
+                    });
+                  } catch (error) {
+                    console.error('Error auto-pausing broadcast:', error);
+                    setConnectionState('error');
+                    setErrorMessage(`You have an active broadcast session. Click "Reconnect to Resume" to continue your broadcast.`);
+                  }
+                }
                 
                 // Calculate elapsed time
                 if (data.startedAt) {
@@ -93,9 +133,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                   
                   // Start duration timer from current elapsed time
                   streamStartTimeRef.current = Date.now() - (elapsed * 1000);
+                  
+                  console.log(`📊 Session duration: ${elapsed} seconds`);
                 }
               } else {
                 // Someone else is broadcasting
+                console.log('❌ Another user is broadcasting:', data.lecturer);
                 setConnectionState('error');
                 setErrorMessage(`${data.lecturer || 'Another presenter'} is currently live. Please wait for them to finish.`);
               }
@@ -234,6 +277,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         setMessage('');
         setErrorMessage('');
         onStreamStart?.();
+        break;
+
+      case 'stream_paused':
+        setConnectionState('paused');
+        setMessage('Broadcast paused successfully');
+        break;
+
+      case 'stream_resumed':
+        setConnectionState('streaming');
+        setMessage('');
         break;
 
       case 'stream_stopped':
@@ -441,6 +494,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       if (isReconnection) {
         // For reconnection, send reconnect message
+        console.log('🔄 Sending reconnect_stream message, duration:', streamDuration);
         ws.send(JSON.stringify({
           type: 'reconnect_stream',
           config: {
@@ -452,6 +506,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         
         // Continue duration timer from where it left off
         if (streamDuration > 0) {
+          console.log('⏱️ Resuming duration timer from', streamDuration, 'seconds');
           durationIntervalRef.current = setInterval(() => {
             const elapsed = Math.floor((Date.now() - streamStartTimeRef.current) / 1000);
             setStreamDuration(elapsed);
@@ -476,6 +531,47 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       setConnectionState('error');
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start broadcast');
       cleanup();
+    }
+  };
+
+  const pauseBroadcast = () => {
+    if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({ type: 'pause_stream' }));
+    }
+    
+    // Stop audio processing but keep connection and timer
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    
+    setConnectionState('paused');
+    setMessage('Broadcast paused. Click Resume to continue.');
+  };
+
+  const resumeBroadcast = async () => {
+    try {
+      setConnectionState('connecting');
+      setMessage('Resuming broadcast...');
+      
+      // Restart audio processing
+      await setupAudioProcessing();
+      
+      if (wsRef.current) {
+        wsRef.current.send(JSON.stringify({ type: 'resume_stream' }));
+      }
+      
+      setConnectionState('streaming');
+      setMessage('');
+    } catch (error) {
+      console.error('Resume error:', error);
+      setConnectionState('error');
+      setErrorMessage('Failed to resume broadcast. Please try again.');
     }
   };
 
@@ -678,12 +774,35 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             🎙️ Try Again
           </button>
         ) : connectionState === 'streaming' ? (
-          <button
-            onClick={stopBroadcast}
-            className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
-          >
-            ⏹️ Stop Broadcasting
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={pauseBroadcast}
+              className="flex-1 bg-yellow-600 text-white py-4 rounded-lg hover:bg-yellow-700 transition-colors font-bold text-lg"
+            >
+              ⏸️ Pause
+            </button>
+            <button
+              onClick={stopBroadcast}
+              className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
+            >
+              ⏹️ Stop
+            </button>
+          </div>
+        ) : connectionState === 'paused' ? (
+          <div className="flex gap-3">
+            <button
+              onClick={resumeBroadcast}
+              className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg"
+            >
+              ▶️ Resume
+            </button>
+            <button
+              onClick={stopBroadcast}
+              className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
+            >
+              ⏹️ Stop
+            </button>
+          </div>
         ) : (
           <button
             disabled
