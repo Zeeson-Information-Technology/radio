@@ -22,6 +22,18 @@ export async function GET() {
     console.log("🔍 Live API: Querying LiveState...");
     let liveState = await LiveState.findOne().lean();
     console.log("✅ Live API: LiveState query complete", liveState ? "Found document" : "No document found");
+    
+    // Debug: Log the actual database state
+    if (liveState) {
+      console.log("📊 Live API: Database state:", {
+        isLive: liveState.isLive,
+        isPaused: liveState.isPaused,
+        lecturer: liveState.lecturer,
+        title: liveState.title,
+        startedAt: liveState.startedAt,
+        updatedAt: liveState.updatedAt
+      });
+    }
 
     // If no LiveState exists, create a default one
     if (!liveState) {

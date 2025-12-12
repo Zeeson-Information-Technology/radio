@@ -110,14 +110,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                     wsRef.current = ws;
                     
                     // Setup message handlers for the paused connection
-                    ws.on('message', (message) => {
+                    ws.onmessage = (event) => {
                       try {
-                        const data = JSON.parse(message.toString());
+                        const data = JSON.parse(event.data);
                         handleGatewayMessage(data);
                       } catch (error) {
                         console.error('Error parsing gateway message:', error);
                       }
-                    });
+                    };
                   } catch (error) {
                     console.error('Error auto-pausing broadcast:', error);
                     setConnectionState('error');
@@ -125,7 +125,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                   }
                 }
                 
-                // Calculate elapsed time
+                // Calculate elapsed time and start timer
                 if (data.startedAt) {
                   const startTime = new Date(data.startedAt).getTime();
                   const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -134,7 +134,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                   // Start duration timer from current elapsed time
                   streamStartTimeRef.current = Date.now() - (elapsed * 1000);
                   
-                  console.log(`📊 Session duration: ${elapsed} seconds`);
+                  // Start the duration timer to continue counting
+                  durationIntervalRef.current = setInterval(() => {
+                    const currentElapsed = Math.floor((Date.now() - streamStartTimeRef.current) / 1000);
+                    setStreamDuration(currentElapsed);
+                  }, 1000);
+                  
+                  console.log(`📊 Session duration: ${elapsed} seconds - timer started`);
                 }
               } else {
                 // Someone else is broadcasting
@@ -504,13 +510,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           }
         }));
         
-        // Continue duration timer from where it left off
-        if (streamDuration > 0) {
-          console.log('⏱️ Resuming duration timer from', streamDuration, 'seconds');
+        // Timer should already be running from session detection
+        // Just ensure streamStartTimeRef is set correctly if not already set
+        if (streamDuration > 0 && !durationIntervalRef.current) {
+          console.log('⏱️ Starting duration timer for reconnection from', streamDuration, 'seconds');
+          streamStartTimeRef.current = Date.now() - (streamDuration * 1000);
           durationIntervalRef.current = setInterval(() => {
             const elapsed = Math.floor((Date.now() - streamStartTimeRef.current) / 1000);
             setStreamDuration(elapsed);
           }, 1000);
+        } else if (durationIntervalRef.current) {
+          console.log('⏱️ Duration timer already running, continuing from', streamDuration, 'seconds');
         }
       } else {
         // New broadcast
@@ -565,6 +575,9 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       if (wsRef.current) {
         wsRef.current.send(JSON.stringify({ type: 'resume_stream' }));
       }
+      
+      // Timer should already be running from session detection
+      // No need to restart it - just continue from current elapsed time
       
       setConnectionState('streaming');
       setMessage('');
@@ -644,185 +657,296 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">🎙️ Browser Broadcasting</h2>
-        <div className={`text-lg font-semibold ${getStatusColor()}`}>
-          {getStatusText()}
+    <div className="bg-gradient-to-br from-white via-slate-50 to-emerald-50/30 rounded-3xl shadow-2xl border-2 border-emerald-100/50 overflow-hidden">
+      {/* Premium Header - Unified Emerald Theme */}
+      <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 px-8 py-6 text-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-black/10"></div>
+        <div className="relative z-10">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center border border-white/30">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white">Browser Broadcasting</h2>
+              <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full border border-white/30 mt-1">
+                <span className="text-sm font-semibold text-white">{getStatusText()}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Audio Level Meter */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm font-medium text-gray-700">
-            Audio Level
-          </label>
+      {/* Main Content */}
+      <div className="p-8">
+        {/* Center Content Container */}
+        <div className="max-w-2xl mx-auto">
           
-          {/* Monitoring Toggle */}
-          <button
-            onClick={() => {
-              if (sourceRef.current && audioContextRef.current) {
-                if (isMonitoring) {
-                  // Disconnect monitoring
-                  try { 
-                    sourceRef.current.disconnect(audioContextRef.current.destination); 
-                  } catch (e) {
-                    console.log('Already disconnected from destination');
+          {/* Audio Level Meter - Premium Design */}
+          <div className="mb-8 text-center">
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Audio Level</h3>
+              
+              {/* Monitoring Toggle - Unified Theme */}
+              <button
+                onClick={() => {
+                  if (sourceRef.current && audioContextRef.current) {
+                    if (isMonitoring) {
+                      try { 
+                        sourceRef.current.disconnect(audioContextRef.current.destination); 
+                      } catch (e) {
+                        console.log('Already disconnected from destination');
+                      }
+                    } else {
+                      try {
+                        sourceRef.current.connect(audioContextRef.current.destination);
+                      } catch (e) {
+                        console.log('Could not connect to destination');
+                      }
+                    }
                   }
-                } else {
-                  // Connect monitoring
-                  try {
-                    sourceRef.current.connect(audioContextRef.current.destination);
-                  } catch (e) {
-                    console.log('Could not connect to destination');
-                  }
-                }
-              }
-              setIsMonitoring(!isMonitoring);
-            }}
-            className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-              isMonitoring 
-                ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
-                : 'bg-gray-100 text-gray-600 border border-gray-300'
-            }`}
-            title={isMonitoring ? "You can hear yourself (may cause echo)" : "Click to hear yourself while broadcasting"}
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728" />
-            </svg>
-            {isMonitoring ? 'Monitor ON' : 'Monitor OFF'}
-          </button>
-        </div>
-        
-        <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden">
-          <div 
-            className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-100"
-            style={{ width: `${Math.min(audioLevel, 100)}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>Silent</span>
-          <span>Good</span>
-          <span>Too Loud</span>
-        </div>
-      </div>
-
-      {/* Stream Duration */}
-      {connectionState === 'streaming' && (
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Stream Duration
-          </label>
-          <div className="text-2xl font-mono font-bold text-emerald-600">
-            {formatDuration(streamDuration)}
+                  setIsMonitoring(!isMonitoring);
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg ${
+                  isMonitoring 
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-amber-200' 
+                    : 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 shadow-slate-200 hover:from-slate-200 hover:to-slate-300'
+                }`}
+                title={isMonitoring ? "You can hear yourself (may cause echo)" : "Click to hear yourself while broadcasting"}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728" />
+                </svg>
+                Monitor {isMonitoring ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            
+            {/* Premium Audio Level Bar - Unified Theme */}
+            <div className="relative">
+              <div className="w-full h-12 bg-gradient-to-r from-slate-200 to-slate-300 rounded-2xl overflow-hidden shadow-inner border-2 border-slate-300/50">
+                <div 
+                  className="h-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-500 transition-all duration-100 shadow-lg"
+                  style={{ width: `${Math.min(audioLevel, 100)}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-sm font-medium text-slate-600 mt-3">
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-emerald-400 rounded-full"></div>
+                  Silent
+                </span>
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-amber-400 rounded-full"></div>
+                  Good
+                </span>
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  Too Loud
+                </span>
+              </div>
+            </div>
           </div>
-          {streamDuration > 0 && (
-            <p className="text-xs text-gray-500 mt-1">
-              {errorMessage.includes('active broadcast session') ? 'Reconnected to existing session' : 'Live since start'}
-            </p>
+
+          {/* Stream Duration - Unified Emerald Theme */}
+          {(connectionState === 'streaming' || connectionState === 'paused') && (
+            <div className="mb-8 text-center">
+              <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-6 border-2 border-emerald-200/50 shadow-lg">
+                <h3 className="text-lg font-bold text-emerald-800 mb-3">Stream Duration</h3>
+                <div className="text-4xl font-mono font-bold text-emerald-600 mb-2 tracking-wider">
+                  {formatDuration(streamDuration)}
+                </div>
+                {streamDuration > 0 && (
+                  <p className="text-sm text-emerald-700 font-medium">
+                    {errorMessage.includes('active broadcast session') ? '🔄 Reconnected to existing session' : '🎙️ Live since start'}
+                  </p>
+                )}
+              </div>
+            </div>
           )}
-        </div>
-      )}
 
-      {/* Error Message */}
-      {errorMessage && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-800">{errorMessage}</p>
-        </div>
-      )}
+          {/* Error Message - Premium */}
+          {errorMessage && (
+            <div className="mb-8 p-6 bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl shadow-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-red-800 font-medium">{errorMessage}</p>
+              </div>
+            </div>
+          )}
 
-      {/* Success Message */}
-      {message && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-sm text-green-800">{message}</p>
-        </div>
-      )}
+          {/* Success Message - Unified Theme */}
+          {message && (
+            <div className="mb-8 p-6 bg-gradient-to-r from-emerald-50 to-emerald-100 border-2 border-emerald-200 rounded-2xl shadow-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-emerald-800 font-medium">{message}</p>
+              </div>
+            </div>
+          )}
 
-      {/* Controls */}
-      <div className="flex gap-4">
-        {connectionState === 'disconnected' ? (
-          <button
-            onClick={startBroadcast}
-            disabled={!isSupported}
-            className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
-          >
-            🎙️ Start Broadcasting
-          </button>
-        ) : connectionState === 'error' && errorMessage.includes('active broadcast') ? (
-          <div className="flex gap-2 flex-1">
-            <button
-              onClick={startBroadcast}
-              disabled={!isSupported}
-              className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              🔄 Reconnect to Resume
-            </button>
-            <button
-              onClick={forceStopBroadcast}
-              className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
-            >
-              🛑 Force Stop
-            </button>
+          {/* Premium Control Buttons - Centered */}
+          <div className="text-center">
+            {connectionState === 'disconnected' ? (
+              <button
+                onClick={startBroadcast}
+                disabled={!isSupported}
+                className="inline-flex items-center gap-3 px-12 py-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-2xl font-bold text-xl shadow-2xl shadow-emerald-200 transition-all duration-300 transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+                Start Broadcasting
+              </button>
+            ) : connectionState === 'error' && errorMessage.includes('active broadcast') ? (
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={startBroadcast}
+                  disabled={!isSupported}
+                  className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-emerald-200 transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Reconnect to Resume
+                </button>
+                <button
+                  onClick={forceStopBroadcast}
+                  className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-red-200 transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+                  </svg>
+                  Force Stop
+                </button>
+              </div>
+            ) : connectionState === 'error' ? (
+              <button
+                onClick={startBroadcast}
+                disabled={!isSupported}
+                className="inline-flex items-center gap-3 px-12 py-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-2xl font-bold text-xl shadow-2xl shadow-emerald-200 transition-all duration-300 transform hover:scale-105"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Try Again
+              </button>
+            ) : connectionState === 'streaming' ? (
+              <div className="flex flex-col sm:flex-row gap-6 justify-center">
+                <button
+                  onClick={pauseBroadcast}
+                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-2xl font-bold text-lg shadow-xl shadow-amber-200 transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                  </svg>
+                  Pause
+                </button>
+                <button
+                  onClick={stopBroadcast}
+                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-red-200 transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 6h12v12H6z"/>
+                  </svg>
+                  Stop
+                </button>
+              </div>
+            ) : connectionState === 'paused' ? (
+              <div className="flex flex-col sm:flex-row gap-6 justify-center">
+                <button
+                  onClick={resumeBroadcast}
+                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-emerald-200 transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                  Resume
+                </button>
+                <button
+                  onClick={stopBroadcast}
+                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-red-200 transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 6h12v12H6z"/>
+                  </svg>
+                  Stop
+                </button>
+              </div>
+            ) : (
+              <button
+                disabled
+                className="inline-flex items-center gap-3 px-12 py-6 bg-gradient-to-r from-slate-400 to-slate-500 text-white rounded-2xl font-bold text-xl shadow-lg cursor-not-allowed"
+              >
+                <svg className={`w-8 h-8 ${connectionState === 'connecting' ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {connectionState === 'connecting' ? 'Connecting...' : 'Preparing...'}
+              </button>
+            )}
           </div>
-        ) : connectionState === 'error' ? (
-          <button
-            onClick={startBroadcast}
-            disabled={!isSupported}
-            className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
-          >
-            🎙️ Try Again
-          </button>
-        ) : connectionState === 'streaming' ? (
-          <div className="flex gap-3">
-            <button
-              onClick={pauseBroadcast}
-              className="flex-1 bg-yellow-600 text-white py-4 rounded-lg hover:bg-yellow-700 transition-colors font-bold text-lg"
-            >
-              ⏸️ Pause
-            </button>
-            <button
-              onClick={stopBroadcast}
-              className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
-            >
-              ⏹️ Stop
-            </button>
-          </div>
-        ) : connectionState === 'paused' ? (
-          <div className="flex gap-3">
-            <button
-              onClick={resumeBroadcast}
-              className="flex-1 bg-emerald-600 text-white py-4 rounded-lg hover:bg-emerald-700 transition-colors font-bold text-lg"
-            >
-              ▶️ Resume
-            </button>
-            <button
-              onClick={stopBroadcast}
-              className="flex-1 bg-red-600 text-white py-4 rounded-lg hover:bg-red-700 transition-colors font-bold text-lg"
-            >
-              ⏹️ Stop
-            </button>
-          </div>
-        ) : (
-          <button
-            disabled
-            className="flex-1 bg-gray-400 text-white py-4 rounded-lg font-bold text-lg cursor-not-allowed"
-          >
-            {connectionState === 'connecting' ? '🔄 Connecting...' : '⏳ Preparing...'}
-          </button>
-        )}
+        </div>
+
       </div>
 
-      {/* Instructions */}
-      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <h4 className="font-semibold text-blue-900 mb-2">How to broadcast:</h4>
-        <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
-          <li>Click "Start Broadcasting"</li>
-          <li>Allow microphone access when prompted</li>
-          <li>Speak into your microphone and watch the audio level</li>
-          <li>Your voice will be live on the radio stream</li>
-          <li>Click "Stop Broadcasting" when finished</li>
-        </ol>
+      {/* Premium Instructions - Unified Emerald Theme */}
+      <div className="mt-8 mx-8 mb-8 p-6 bg-gradient-to-br from-emerald-50 to-emerald-100 border-2 border-emerald-200/50 rounded-2xl shadow-lg">
+        <div className="text-center mb-4">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-semibold">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Broadcasting Guide
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">1</div>
+              <div>
+                <p className="font-semibold text-emerald-900">Start Broadcasting</p>
+                <p className="text-sm text-emerald-700">Click the emerald button to begin</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">2</div>
+              <div>
+                <p className="font-semibold text-emerald-900">Allow Microphone</p>
+                <p className="text-sm text-emerald-700">Grant permission when prompted</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">3</div>
+              <div>
+                <p className="font-semibold text-emerald-900">Monitor Audio Level</p>
+                <p className="text-sm text-emerald-700">Keep the bar in the emerald/amber zone</p>
+              </div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">4</div>
+              <div>
+                <p className="font-semibold text-emerald-900">You're Live!</p>
+                <p className="text-sm text-emerald-700">Your voice is now on the radio stream</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">5</div>
+              <div>
+                <p className="font-semibold text-emerald-900">Pause or Stop</p>
+                <p className="text-sm text-emerald-700">Use controls when finished</p>
+              </div>
+            </div>
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs text-amber-800 font-medium">💡 Tip: Use "Pause" for breaks, "Stop" to end completely</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

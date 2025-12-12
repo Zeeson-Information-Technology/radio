@@ -20,6 +20,7 @@ const ICECAST_PORT = process.env.ICECAST_PORT || 8000;
 const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD || 'hackme';
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT || '/stream';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/online-radio';
+const NEXTJS_URL = process.env.NEXTJS_URL || 'http://localhost:3000';
 
 // MongoDB LiveState Schema
 const LiveStateSchema = new mongoose.Schema({
