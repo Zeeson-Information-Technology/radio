@@ -22,6 +22,7 @@ export default async function RadioPage() {
   try {
     const response = await fetch(`${baseUrl}/api/live`, {
       cache: 'no-store', // Always fetch fresh data
+      next: { revalidate: 0 }, // Revalidate immediately
     });
     
     if (response.ok) {
@@ -48,6 +49,7 @@ export default async function RadioPage() {
   try {
     const response = await fetch(`${baseUrl}/api/schedule`, {
       cache: 'no-store', // Always fetch fresh data
+      next: { revalidate: 60 }, // Revalidate schedule every minute
     });
     
     if (response.ok) {

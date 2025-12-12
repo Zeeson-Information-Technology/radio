@@ -31,6 +31,7 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
     pausedAt: null,
   });
   const [listenerCount, setListenerCount] = useState<number>(0);
+  const [isLoadingListeners, setIsLoadingListeners] = useState(false);
   const [title, setTitle] = useState("");
   const [lecturer, setLecturer] = useState(admin.name || admin.email);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -40,17 +41,9 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
 
   useEffect(() => {
     fetchLiveState();
+    // Only fetch listener count once on load, no more polling!
     fetchListenerCount();
-    
-    // Poll listener count every 10 seconds when live
-    const interval = setInterval(() => {
-      if (liveState.isLive) {
-        fetchListenerCount();
-      }
-    }, 10000);
-    
-    return () => clearInterval(interval);
-  }, [liveState.isLive]);
+  }, []);
 
   const fetchLiveState = async () => {
     try {
@@ -75,8 +68,9 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
     }
   };
 
-  const fetchListenerCount = async () => {
+  const fetchListenerCount = async (showLoading = false) => {
     try {
+      if (showLoading) setIsLoadingListeners(true);
       const response = await fetch('/api/listeners');
       const data = await response.json();
       if (data.ok) {
@@ -84,6 +78,8 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
       }
     } catch (err) {
       console.error('Error fetching listener count:', err);
+    } finally {
+      if (showLoading) setIsLoadingListeners(false);
     }
   };
 
@@ -302,9 +298,24 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                   )}
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold">{listenerCount}</div>
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <div className="text-3xl font-bold">{listenerCount}</div>
+                    <button
+                      onClick={() => fetchListenerCount(true)}
+                      disabled={isLoadingListeners}
+                      className="p-1 hover:bg-white/20 rounded-full transition-colors disabled:opacity-50"
+                      title="Refresh listener count"
+                    >
+                      <svg className={`w-4 h-4 text-white ${isLoadingListeners ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+                  </div>
                   <p className="text-red-100 text-sm">
                     {listenerCount === 1 ? 'listener' : 'listeners'}
+                  </p>
+                  <p className="text-red-200 text-xs mt-1">
+                    Click refresh icon to update
                   </p>
                 </div>
               </div>

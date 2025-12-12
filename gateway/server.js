@@ -20,6 +20,7 @@ const ICECAST_PORT = process.env.ICECAST_PORT || 8000;
 const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD || 'hackme';
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT || '/stream';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/online-radio';
+const NEXTJS_URL = process.env.NEXTJS_URL || 'http://localhost:3000';
 
 // MongoDB LiveState Schema
 const LiveStateSchema = new mongoose.Schema({
@@ -96,6 +97,10 @@ class BroadcastGateway {
     
     console.log(`🔌 New connection from ${user.email} (${user.role})`);
 
+    // Check database for existing live session
+    const liveState = await this.getLiveState();
+    const currentUserLecturer = user.name || user.email;
+
     // Check if someone is already broadcasting
     if (this.currentBroadcast) {
       // Check if it's the same user trying to reconnect
@@ -121,6 +126,41 @@ class BroadcastGateway {
         ws.send(JSON.stringify({
           type: 'error',
           message: `Another presenter (${this.currentBroadcast.user.email}) is currently live. Please try again later.`
+        }));
+        ws.close();
+        return;
+      }
+    }
+
+    // Check if there's a live session in database but no currentBroadcast (gateway restart scenario)
+    if (liveState && liveState.isLive) {
+      if (liveState.lecturer === currentUserLecturer) {
+        console.log(`🔄 Recovering session for ${user.email} after gateway restart`);
+        
+        // Restore the broadcast session
+        this.currentBroadcast = {
+          ws,
+          user,
+          startTime: liveState.startedAt || new Date()
+        };
+        
+        // Setup message handlers
+        ws.on('message', this.handleMessage.bind(this, ws, user));
+        ws.on('close', this.handleDisconnection.bind(this, user));
+        ws.on('error', this.handleError.bind(this, user));
+
+        // Send ready signal
+        ws.send(JSON.stringify({
+          type: 'ready',
+          message: 'Recovered existing broadcast session.'
+        }));
+        
+        return;
+      } else {
+        // Someone else is live according to database
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Another presenter (${liveState.lecturer}) is currently live. Please try again later.`
         }));
         ws.close();
         return;
@@ -179,6 +219,14 @@ class BroadcastGateway {
       
       case 'reconnect_stream':
         this.reconnectStreaming(ws, user, data);
+        break;
+      
+      case 'pause_stream':
+        this.pauseStreaming(ws, user);
+        break;
+      
+      case 'resume_stream':
+        this.resumeStreaming(ws, user);
         break;
       
       case 'stop_stream':
@@ -242,8 +290,13 @@ class BroadcastGateway {
   async reconnectStreaming(ws, user, config = {}) {
     console.log(`🔄 Reconnecting stream for ${user.email}`);
 
-    // If already streaming, just acknowledge the reconnection
-    if (this.isStreaming && this.ffmpegProcess) {
+    // Check database for existing session
+    const liveState = await this.getLiveState();
+    const currentUserLecturer = user.name || user.email;
+
+    // If already streaming and it's the same user, just acknowledge
+    if (this.isStreaming && this.ffmpegProcess && liveState && liveState.lecturer === currentUserLecturer) {
+      console.log(`✅ Stream already active for ${user.email}, acknowledging reconnection`);
       ws.send(JSON.stringify({
         type: 'stream_started',
         message: 'Reconnected to existing stream',
@@ -256,10 +309,9 @@ class BroadcastGateway {
       return;
     }
 
-    // If not streaming but database shows live, restart the stream
-    const liveState = await this.getLiveState();
-    if (liveState && liveState.isLive) {
-      console.log(`🎙️ Restarting stream for ${user.email} (session recovery)`);
+    // If database shows live session for this user but FFmpeg is not running, restart it
+    if (liveState && liveState.isLive && liveState.lecturer === currentUserLecturer) {
+      console.log(`🎙️ Restarting FFmpeg for ${user.email} (session recovery)`);
       
       // Default audio config
       const audioConfig = {
@@ -280,8 +332,15 @@ class BroadcastGateway {
       });
 
       this.startFFmpeg(ws, user, audioConfig);
+    } else if (liveState && liveState.isLive && liveState.lecturer !== currentUserLecturer) {
+      // Someone else is live
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: `Another presenter (${liveState.lecturer}) is currently live.`
+      }));
     } else {
       // No existing session, start new one
+      console.log(`🎙️ No existing session found, starting new stream for ${user.email}`);
       this.startStreaming(ws, user, config);
     }
   }
@@ -373,6 +432,40 @@ class BroadcastGateway {
         }));
       }
     });
+  }
+
+  async pauseStreaming(ws, user) {
+    console.log(`⏸️ Pausing stream for ${user.email}`);
+
+    // Keep FFmpeg running but update database to paused state
+    await this.updateLiveState({
+      isLive: true,
+      isPaused: true,
+      pausedAt: new Date()
+      // Keep title, lecturer, startedAt unchanged
+    });
+
+    ws.send(JSON.stringify({
+      type: 'stream_paused',
+      message: 'Stream paused successfully'
+    }));
+  }
+
+  async resumeStreaming(ws, user) {
+    console.log(`▶️ Resuming stream for ${user.email}`);
+
+    // Update database to resume state
+    await this.updateLiveState({
+      isLive: true,
+      isPaused: false,
+      pausedAt: null
+      // Keep title, lecturer, startedAt unchanged
+    });
+
+    ws.send(JSON.stringify({
+      type: 'stream_resumed',
+      message: 'Stream resumed successfully'
+    }));
   }
 
   async stopStreaming(ws, user) {
@@ -473,8 +566,43 @@ class BroadcastGateway {
         console.log(`📺 Title: ${stateData.title}`);
         console.log(`🎙️ Lecturer: ${stateData.lecturer}`);
       }
+      
+      // 🚀 SMART NOTIFICATION: Tell all listeners about the change!
+      await this.notifyListeners(liveState);
+      
     } catch (error) {
       console.error('❌ Error updating live state:', error);
+    }
+  }
+
+  async notifyListeners(liveState) {
+    try {
+      // Get the Next.js app URL (Vercel or localhost)
+      const appUrl = process.env.NEXTJS_URL || 'http://localhost:3000';
+      
+      const response = await fetch(`${appUrl}/api/live/notify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.JWT_SECRET}`
+        },
+        body: JSON.stringify({
+          isLive: liveState.isLive,
+          isPaused: liveState.isPaused,
+          title: liveState.title,
+          lecturer: liveState.lecturer,
+          startedAt: liveState.startedAt?.toISOString()
+        })
+      });
+      
+      if (response.ok) {
+        console.log('📡 Successfully notified listeners of state change');
+      } else {
+        console.log('⚠️ Failed to notify listeners:', response.status);
+      }
+    } catch (error) {
+      console.log('⚠️ Error notifying listeners:', error.message);
+      // Don't fail the main operation if notification fails
     }
   }
 
