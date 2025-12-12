@@ -79,7 +79,10 @@ class BroadcastGateway {
         return false;
       }
 
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET, {
+        issuer: 'almanhaj-radio',
+        audience: 'broadcast-gateway'
+      });
       
       // Store user info for later use
       info.req.user = decoded;
