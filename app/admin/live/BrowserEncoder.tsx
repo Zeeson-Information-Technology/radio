@@ -280,7 +280,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       case 'stream_started':
         setConnectionState('streaming');
-        setMessage('');
+        setMessage('🎙️ Streaming started! You are now live.');
         setErrorMessage('');
         onStreamStart?.();
         break;
@@ -288,11 +288,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       case 'stream_paused':
         setConnectionState('paused');
         setMessage('Broadcast paused successfully');
+        setErrorMessage('');
         break;
 
       case 'stream_resumed':
         setConnectionState('streaming');
-        setMessage('');
+        setMessage('🎙️ Streaming resumed! You are now live.');
+        setErrorMessage('');
         break;
 
       case 'stream_stopped':
@@ -306,9 +308,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       case 'stream_error':
         console.error('Stream error from gateway:', data.message);
-        setConnectionState('error');
-        setErrorMessage(data.message || 'Stream error occurred');
-        onError?.(data.message);
+        // Only show transient errors briefly, don't persist them
+        if (connectionState === 'streaming') {
+          // Transient error during streaming - show but don't change state
+          console.warn('⚠️ Transient stream error:', data.message);
+          // Don't set error state - stream may recover
+        } else {
+          setConnectionState('error');
+          setErrorMessage(data.message || 'Stream error occurred');
+          onError?.(data.message);
+        }
         break;
 
       case 'error':
@@ -783,7 +792,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                 <svg className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-emerald-800 font-medium">{message}</p>
+                <p className="text-emerald-800 font-medium">{message.replace('Browser streaming', 'Streaming')}</p>
               </div>
             </div>
           )}
@@ -932,7 +941,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">4</div>
               <div>
                 <p className="font-semibold text-emerald-900">You're Live!</p>
-                <p className="text-sm text-emerald-700">Your voice is now on the radio stream</p>
+                <p className="text-sm text-emerald-700">Your voice is now streaming on the radio</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
