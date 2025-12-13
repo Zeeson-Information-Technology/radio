@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
 import Link from "next/link";
@@ -199,9 +199,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
                   </p>
                 </div>
                 <div className="text-center py-12 text-slate-500">
-                  <div className="text-6xl mb-4">👨‍🏫</div>
-                  <p className="text-lg">Lecturer management coming soon...</p>
-                  <p className="text-sm mt-2">This feature will be implemented in Phase 3</p>
+                  <p className="text-lg">Coming soon...</p>
                 </div>
               </div>
             )}
@@ -215,9 +213,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
                   </p>
                 </div>
                 <div className="text-center py-12 text-slate-500">
-                  <div className="text-6xl mb-4">📂</div>
-                  <p className="text-lg">Category management coming soon...</p>
-                  <p className="text-sm mt-2">This feature will be implemented in Phase 3</p>
+                  <p className="text-lg">Coming soon...</p>
                 </div>
               </div>
             )}
