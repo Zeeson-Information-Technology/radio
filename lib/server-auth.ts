@@ -54,3 +54,21 @@ export async function isAuthenticated(): Promise<boolean> {
   const admin = await getCurrentAdmin();
   return admin !== null;
 }
+
+/**
+ * Check if the current admin has permission to upload audio
+ * @returns True if has permission, false otherwise
+ */
+export async function canUploadAudio(): Promise<boolean> {
+  const admin = await getCurrentAdmin();
+  return admin !== null && (admin.role === "super_admin" || admin.role === "admin");
+}
+
+/**
+ * Check if the current admin is a super admin
+ * @returns True if super admin, false otherwise
+ */
+export async function isSuperAdmin(): Promise<boolean> {
+  const admin = await getCurrentAdmin();
+  return admin !== null && admin.role === "super_admin";
+}

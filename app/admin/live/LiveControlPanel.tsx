@@ -172,6 +172,14 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                   📅 Schedule
                 </Link>
                 
+                {/* All users can access audio library */}
+                <Link
+                  href="/admin/audio"
+                  className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
+                >
+                  📚 Audio Library
+                </Link>
+                
                 {/* Only super_admin and admin can manage users */}
                 {(admin.role === "super_admin" || admin.role === "admin") && (
                   <Link
