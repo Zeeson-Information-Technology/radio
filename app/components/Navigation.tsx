@@ -70,6 +70,12 @@ export default function Navigation() {
                 Listen Live
               </Link>
               <Link
+                href="/library"
+                className="px-5 py-2 text-stone-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 font-semibold border border-transparent hover:border-emerald-200"
+              >
+                📚 Library
+              </Link>
+              <Link
                 href="/admin/login"
                 className="px-5 py-2 text-stone-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 font-semibold border border-transparent hover:border-emerald-200"
               >
@@ -142,6 +148,17 @@ export default function Navigation() {
               <div className="flex items-center gap-3">
                 <div className="w-1.5 h-1.5 bg-yellow-600 rotate-45"></div>
                 Listen Live
+              </div>
+            </Link>
+            
+            <Link
+              href="/library"
+              onClick={() => setMobileMenuOpen(false)}
+              className="block px-4 py-3 text-stone-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-all duration-200 font-semibold border-2 border-transparent hover:border-emerald-200"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-1.5 h-1.5 bg-yellow-600 rotate-45"></div>
+                📚 Audio Library
               </div>
             </Link>
             

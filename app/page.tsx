@@ -274,15 +274,26 @@ export default function HomePage() {
           <p className="text-xl text-emerald-100 mb-10 max-w-2xl mx-auto">
             Join thousands of listeners seeking knowledge and strengthening their faith through authentic Islamic content
           </p>
-          <Link
-            href="/radio"
-            className="inline-flex items-center justify-center gap-2 bg-white text-emerald-900 px-10 py-5 rounded-xl hover:bg-emerald-50 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
-          >
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
-            </svg>
-            Start Listening Now
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <Link
+              href="/radio"
+              className="inline-flex items-center justify-center gap-2 bg-white text-emerald-900 px-10 py-5 rounded-xl hover:bg-emerald-50 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+            >
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
+              </svg>
+              Listen Live
+            </Link>
+            <Link
+              href="/library"
+              className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-10 py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              📚 Explore Library
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -359,6 +370,12 @@ export default function HomePage() {
                   <Link href="/radio" className="flex items-center gap-2 hover:text-yellow-400 transition-colors group justify-center sm:justify-start">
                     <span className="w-1.5 h-1.5 bg-yellow-600 rotate-45 group-hover:scale-125 transition-transform"></span>
                     Listen Live
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/library" className="flex items-center gap-2 hover:text-yellow-400 transition-colors group justify-center sm:justify-start">
+                    <span className="w-1.5 h-1.5 bg-yellow-600 rotate-45 group-hover:scale-125 transition-transform"></span>
+                    Audio Library
                   </Link>
                 </li>
                 <li>
