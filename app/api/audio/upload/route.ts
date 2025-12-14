@@ -185,7 +185,34 @@ export async function POST(request: NextRequest) {
     // Trigger conversion if needed
     if (needsConversion) {
       console.log(`🎵 Triggering conversion for ${detectedFormat} file:`, audioRecording._id);
-      await conversionService.addConversionJob(audioRecording._id.toString(), uploadResult.storageUrl);
+      
+      try {
+        // Call EC2 gateway conversion service
+        const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
+        const conversionResponse = await fetch(`${gatewayUrl}/api/convert-audio`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.JWT_SECRET}`
+          },
+          body: JSON.stringify({
+            recordId: audioRecording._id.toString(),
+            originalKey: uploadResult.storageKey,
+            format: detectedFormat
+          })
+        });
+        
+        if (!conversionResponse.ok) {
+          console.error('Gateway conversion request failed:', await conversionResponse.text());
+          // Don't fail the upload, just log the error
+        } else {
+          const conversionResult = await conversionResponse.json();
+          console.log('✅ Conversion job queued:', conversionResult.jobId);
+        }
+      } catch (error) {
+        console.error('Failed to trigger conversion on gateway:', error);
+        // Don't fail the upload, just log the error
+      }
     }
 
     // Update lecturer statistics

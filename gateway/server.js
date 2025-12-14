@@ -5,12 +5,18 @@
  * Receives browser audio via WebSocket → Encodes to MP3 → Streams to Icecast
  */
 
+const express = require('express');
+const http = require('http');
 const WebSocket = require('ws');
+const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
+const AWS = require('aws-sdk');
+const ffmpeg = require('fluent-ffmpeg');
+const { v4: uuidv4 } = require('uuid');
 
 // Environment variables
 const PORT = process.env.GATEWAY_PORT || 8080;
@@ -21,6 +27,23 @@ const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD || 'hackme';
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT || '/stream';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/online-radio';
 const NEXTJS_URL = process.env.NEXTJS_URL || 'http://localhost:3000';
+
+// AWS Configuration for audio conversion
+const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'almanhaj-radio-audio';
+const CONVERSION_TEMP_DIR = process.env.CONVERSION_TEMP_DIR || '/tmp/audio-conversion';
+const CONVERSION_MAX_CONCURRENT = parseInt(process.env.CONVERSION_MAX_CONCURRENT) || 2;
+
+// Configure AWS
+if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+  AWS.config.update({
+    region: AWS_REGION,
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+  });
+}
+
+const s3 = new AWS.S3();
 
 // MongoDB LiveState Schema
 const LiveStateSchema = new mongoose.Schema({
@@ -36,16 +59,288 @@ const LiveStateSchema = new mongoose.Schema({
 
 const LiveState = mongoose.models.LiveState || mongoose.model('LiveState', LiveStateSchema);
 
+// AudioRecording Schema for conversion
+const AudioRecordingSchema = new mongoose.Schema({
+  title: String,
+  lecturer: String,
+  format: String,
+  storageUrl: String,
+  conversionStatus: {
+    type: String,
+    enum: ['pending', 'processing', 'ready', 'failed'],
+    default: 'pending'
+  },
+  originalKey: String,
+  playbackKey: String,
+  playbackUrl: String,
+  conversionError: String,
+  conversionAttempts: { type: Number, default: 0 },
+  lastConversionAttempt: Date,
+  createdAt: { type: Date, default: Date.now }
+});
+
+const AudioRecording = mongoose.models.AudioRecording || mongoose.model('AudioRecording', AudioRecordingSchema);
+
+// Audio Conversion Service
+class AudioConversionService {
+  constructor() {
+    this.queue = [];
+    this.processing = new Set();
+    this.jobs = new Map(); // jobId -> job details
+    this.maxConcurrent = CONVERSION_MAX_CONCURRENT;
+    
+    this.ensureTempDirectory();
+    this.processQueue();
+  }
+
+  async ensureTempDirectory() {
+    try {
+      await fs.promises.mkdir(CONVERSION_TEMP_DIR, { recursive: true });
+      console.log(`📁 Temp directory ready: ${CONVERSION_TEMP_DIR}`);
+    } catch (error) {
+      console.error('❌ Failed to create temp directory:', error);
+    }
+  }
+
+  async queueConversion(recordId, originalKey, format) {
+    // Check if already converted (idempotency)
+    const recording = await AudioRecording.findById(recordId);
+    if (!recording) {
+      throw new Error('Recording not found');
+    }
+
+    if (recording.conversionStatus === 'ready') {
+      return {
+        jobId: `existing_${recordId}`,
+        status: 'completed',
+        playbackUrl: recording.playbackUrl
+      };
+    }
+
+    if (recording.conversionStatus === 'processing') {
+      // Find existing job
+      for (const [jobId, job] of this.jobs.entries()) {
+        if (job.recordId === recordId) {
+          return { jobId, status: 'processing' };
+        }
+      }
+    }
+
+    // Create new conversion job
+    const jobId = uuidv4();
+    const job = {
+      jobId,
+      recordId,
+      originalKey,
+      format,
+      status: 'queued',
+      createdAt: new Date(),
+      progress: 0
+    };
+
+    this.jobs.set(jobId, job);
+    this.queue.push(job);
+
+    // Update database status
+    await AudioRecording.findByIdAndUpdate(recordId, {
+      conversionStatus: 'pending',
+      lastConversionAttempt: new Date()
+    });
+
+    console.log(`🎵 Queued conversion job ${jobId} for record ${recordId}`);
+    return { jobId, status: 'queued' };
+  }
+
+  async processQueue() {
+    setInterval(async () => {
+      if (this.queue.length === 0 || this.processing.size >= this.maxConcurrent) {
+        return;
+      }
+
+      const job = this.queue.shift();
+      if (!job) return;
+
+      this.processing.add(job.jobId);
+      job.status = 'processing';
+
+      try {
+        await this.processConversion(job);
+      } catch (error) {
+        console.error(`❌ Conversion job ${job.jobId} failed:`, error);
+        await this.handleConversionError(job, error);
+      } finally {
+        this.processing.delete(job.jobId);
+      }
+    }, 1000);
+  }
+
+  async processConversion(job) {
+    console.log(`🔄 Processing conversion job ${job.jobId}`);
+    
+    const { recordId, originalKey } = job;
+    const recording = await AudioRecording.findById(recordId);
+    
+    if (!recording) {
+      throw new Error('Recording not found');
+    }
+
+    // Update database to processing
+    await AudioRecording.findByIdAndUpdate(recordId, {
+      conversionStatus: 'processing'
+    });
+
+    // Generate file paths
+    const tempInputPath = path.join(CONVERSION_TEMP_DIR, `${job.jobId}_input.amr`);
+    const tempOutputPath = path.join(CONVERSION_TEMP_DIR, `${job.jobId}_output.mp3`);
+    const playbackKey = `playback/${recordId}.mp3`;
+
+    try {
+      // Download AMR file from S3
+      job.progress = 10;
+      console.log(`📥 Downloading ${originalKey} from S3...`);
+      
+      const s3Object = await s3.getObject({
+        Bucket: AWS_S3_BUCKET,
+        Key: originalKey
+      }).promise();
+
+      await fs.promises.writeFile(tempInputPath, s3Object.Body);
+      job.progress = 30;
+
+      // Convert AMR to MP3 using FFmpeg
+      console.log(`🎵 Converting AMR to MP3...`);
+      await this.convertAudioFile(tempInputPath, tempOutputPath);
+      job.progress = 70;
+
+      // Upload MP3 to S3
+      console.log(`📤 Uploading MP3 to S3...`);
+      const mp3Data = await fs.promises.readFile(tempOutputPath);
+      
+      await s3.putObject({
+        Bucket: AWS_S3_BUCKET,
+        Key: playbackKey,
+        Body: mp3Data,
+        ContentType: 'audio/mpeg'
+      }).promise();
+
+      const playbackUrl = `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${playbackKey}`;
+      job.progress = 90;
+
+      // Update database record
+      await AudioRecording.findByIdAndUpdate(recordId, {
+        conversionStatus: 'ready',
+        playbackKey,
+        playbackUrl,
+        conversionError: null
+      });
+
+      job.status = 'completed';
+      job.progress = 100;
+      job.playbackUrl = playbackUrl;
+
+      console.log(`✅ Conversion job ${job.jobId} completed successfully`);
+
+    } finally {
+      // Clean up temp files
+      try {
+        await fs.promises.unlink(tempInputPath).catch(() => {});
+        await fs.promises.unlink(tempOutputPath).catch(() => {});
+      } catch (error) {
+        console.warn('⚠️ Failed to clean up temp files:', error);
+      }
+    }
+  }
+
+  async convertAudioFile(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .audioCodec('libmp3lame')
+        .audioBitrate(64) // 64kbps for voice recordings
+        .audioChannels(1) // Mono
+        .audioFrequency(22050) // 22kHz sample rate
+        .output(outputPath)
+        .on('end', () => {
+          console.log('🎵 FFmpeg conversion completed');
+          resolve();
+        })
+        .on('error', (error) => {
+          console.error('❌ FFmpeg conversion failed:', error);
+          reject(error);
+        })
+        .run();
+    });
+  }
+
+  async handleConversionError(job, error) {
+    const { recordId } = job;
+    
+    // Increment retry count
+    const recording = await AudioRecording.findById(recordId);
+    const attempts = (recording.conversionAttempts || 0) + 1;
+    
+    if (attempts < 3) {
+      // Retry
+      console.log(`🔄 Retrying conversion job ${job.jobId} (attempt ${attempts + 1})`);
+      
+      await AudioRecording.findByIdAndUpdate(recordId, {
+        conversionStatus: 'pending',
+        conversionAttempts: attempts,
+        lastConversionAttempt: new Date()
+      });
+
+      // Re-queue with delay
+      setTimeout(() => {
+        job.status = 'queued';
+        this.queue.push(job);
+      }, Math.pow(2, attempts) * 1000); // Exponential backoff
+      
+    } else {
+      // Mark as failed
+      console.log(`❌ Conversion job ${job.jobId} failed permanently after ${attempts} attempts`);
+      
+      await AudioRecording.findByIdAndUpdate(recordId, {
+        conversionStatus: 'failed',
+        conversionError: error.message,
+        conversionAttempts: attempts,
+        lastConversionAttempt: new Date()
+      });
+
+      job.status = 'failed';
+      job.error = error.message;
+    }
+  }
+
+  getJobStatus(jobId) {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      return null;
+    }
+
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress || 0,
+      error: job.error || null,
+      playbackUrl: job.playbackUrl || null
+    };
+  }
+}
+
 class BroadcastGateway {
   constructor() {
+    this.app = express();
+    this.server = http.createServer(this.app);
     this.wss = null;
     this.currentBroadcast = null;
     this.ffmpegProcess = null;
     this.isStreaming = false;
+    this.conversionService = new AudioConversionService();
     
     this.connectToDatabase();
+    this.setupExpressApp();
     this.setupWebSocketServer();
     this.setupGracefulShutdown();
+    this.startServer();
   }
 
   async connectToDatabase() {
@@ -57,16 +352,143 @@ class BroadcastGateway {
     }
   }
 
+  setupExpressApp() {
+    // Middleware
+    this.app.use(express.json());
+    this.app.use(cors({ 
+      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'https://almanhaj.vercel.app']
+    }));
+
+    // Health check endpoint
+    this.app.get('/health', (req, res) => {
+      res.json({
+        status: 'ok',
+        services: {
+          websocket: this.wss ? 'active' : 'inactive',
+          conversion: 'active',
+          icecast: this.isStreaming ? 'connected' : 'disconnected'
+        },
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Audio conversion endpoints
+    this.app.post('/api/convert-audio', this.authenticateToken.bind(this), async (req, res) => {
+      try {
+        const { recordId, originalKey, format } = req.body;
+
+        // Validate request
+        if (!recordId || !originalKey || !format) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing required fields: recordId, originalKey, format',
+            code: 'INVALID_REQUEST'
+          });
+        }
+
+        if (format !== 'amr') {
+          return res.status(400).json({
+            success: false,
+            error: 'Only AMR format is supported for conversion',
+            code: 'INVALID_FORMAT'
+          });
+        }
+
+        // Queue conversion
+        const result = await this.conversionService.queueConversion(recordId, originalKey, format);
+        
+        res.json({
+          success: true,
+          jobId: result.jobId,
+          status: result.status,
+          message: result.status === 'completed' ? 'File already converted' : 'Conversion job queued successfully',
+          playbackUrl: result.playbackUrl || null
+        });
+
+      } catch (error) {
+        console.error('❌ Conversion API error:', error);
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          code: 'CONVERSION_FAILED'
+        });
+      }
+    });
+
+    this.app.get('/api/convert-status/:jobId', this.authenticateToken.bind(this), (req, res) => {
+      try {
+        const { jobId } = req.params;
+        const status = this.conversionService.getJobStatus(jobId);
+
+        if (!status) {
+          return res.status(404).json({
+            success: false,
+            error: 'Job not found',
+            code: 'JOB_NOT_FOUND'
+          });
+        }
+
+        res.json(status);
+      } catch (error) {
+        console.error('❌ Status API error:', error);
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          code: 'STATUS_ERROR'
+        });
+      }
+    });
+
+    console.log('🌐 Express app configured with conversion API endpoints');
+  }
+
+  authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Access token required',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET, {
+        issuer: 'almanhaj-radio',
+        audience: 'broadcast-gateway'
+      });
+      req.user = decoded;
+      next();
+    } catch (error) {
+      return res.status(403).json({
+        success: false,
+        error: 'Invalid or expired token',
+        code: 'FORBIDDEN'
+      });
+    }
+  }
+
   setupWebSocketServer() {
+    // Attach WebSocket to HTTP server
     this.wss = new WebSocket.Server({ 
-      port: PORT,
+      server: this.server,
       verifyClient: this.verifyClient.bind(this)
     });
 
     this.wss.on('connection', this.handleConnection.bind(this));
-    
-    console.log(`🎙️ Broadcast Gateway listening on port ${PORT}`);
-    console.log(`📡 Icecast target: ${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`);
+    console.log('🔌 WebSocket server attached to HTTP server');
+  }
+
+  startServer() {
+    this.server.listen(PORT, () => {
+      console.log(`🎙️ Broadcast Gateway listening on port ${PORT}`);
+      console.log(`📡 HTTP API: http://localhost:${PORT}`);
+      console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+      console.log(`📡 Icecast target: ${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`);
+      console.log(`🎵 Audio conversion service initialized`);
+    });
   }
 
   verifyClient(info) {
@@ -617,8 +1039,8 @@ class BroadcastGateway {
         this.ffmpegProcess.kill('SIGTERM');
       }
       
-      if (this.wss) {
-        this.wss.close();
+      if (this.server) {
+        this.server.close();
       }
       
       process.exit(0);
