@@ -103,44 +103,44 @@ export default function AudioPlayer({ recording, onClose }: AudioPlayerProps) {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-emerald-200 shadow-2xl z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div className="flex items-center gap-4 mb-4">
-          {/* Recording Info */}
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <span className="text-2xl">{getTypeIcon(recording.type)}</span>
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2 sm:py-3">
+        <div className="flex items-center gap-2 mb-2 sm:mb-3">
+          {/* Recording Info - Compact */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-lg sm:text-xl flex-shrink-0">{getTypeIcon(recording.type)}</span>
             <div className="min-w-0 flex-1">
-              <h3 className="font-semibold text-slate-800 truncate">
+              <h3 className="font-semibold text-xs sm:text-sm text-slate-800 truncate">
                 {recording.title}
               </h3>
-              <p className="text-sm text-slate-600 truncate">
+              <p className="text-xs text-slate-600 truncate">
                 by {recording.lecturerName}
               </p>
             </div>
           </div>
 
-          {/* Close Button */}
+          {/* Close Button - Smaller */}
           <button
             onClick={onClose}
-            className="w-8 h-8 text-slate-400 hover:text-slate-600 transition-colors"
+            className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400 hover:text-slate-600 transition-colors flex-shrink-0"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* Universal Audio Player */}
+        {/* Universal Audio Player - Compact */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
-            <span className="ml-2 text-slate-600">Loading audio...</span>
+          <div className="flex items-center justify-center py-4 sm:py-6">
+            <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="ml-2 text-xs sm:text-sm text-slate-600">Loading audio...</span>
           </div>
         ) : error ? (
-          <div className="text-center py-8">
-            <p className="text-red-600 mb-2">{error}</p>
+          <div className="text-center py-4 sm:py-6">
+            <p className="text-xs sm:text-sm text-red-600 mb-2 px-4">{error}</p>
             <button
               onClick={fetchPlaybackData}
-              className="text-emerald-600 hover:text-emerald-700 underline"
+              className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 underline"
             >
               Try Again
             </button>

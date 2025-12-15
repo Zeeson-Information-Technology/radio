@@ -408,7 +408,7 @@ export default function UniversalAudioPlayer({
 
   // Render playable format UI
   return (
-    <div className={`bg-blue-50 border border-blue-200 rounded-xl p-4 ${className}`}>
+    <div className={`bg-blue-50 border border-blue-200 rounded-lg p-2 sm:p-3 ${className}`}>
       {/* Audio Element */}
       <audio
         ref={audioRef}
@@ -420,49 +420,45 @@ export default function UniversalAudioPlayer({
         Your browser does not support the audio element.
       </audio>
       
-      <div className="flex items-center gap-4">
-        {/* Play/Pause Button */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Play/Pause Button - Smaller */}
         <button
           onClick={togglePlayPause}
           disabled={isLoading || !!error}
-          className="flex items-center justify-center w-12 h-12 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
         >
           {isLoading ? (
-            <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+            <svg className="animate-spin h-3 w-3 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
           ) : error ? (
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
             </svg>
           ) : isPlaying ? (
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
             </svg>
           ) : (
-            <svg className="w-5 h-5 ml-1" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z"/>
             </svg>
           )}
         </button>
 
-        {/* Track Info and Controls */}
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <h4 className="font-medium text-blue-900 truncate">{title}</h4>
-              <span className={`text-xs font-medium px-2 py-1 rounded-full ${getBrowserSupportColor(formatInfo.browserSupport)} bg-blue-100`}>
-                {format.toUpperCase()}
-              </span>
-            </div>
-            <span className="text-sm text-blue-700 ml-2">
-              {formatTime(currentTime)} / {formatTime(duration)}
+        {/* Track Info and Controls - Compact */}
+        <div className="flex-1 min-w-0">
+          {/* Title and Format */}
+          <div className="flex items-center gap-2 mb-1">
+            <h4 className="font-medium text-xs sm:text-sm text-blue-900 truncate flex-1">{title}</h4>
+            <span className={`text-xs font-medium px-1 py-0.5 rounded ${getBrowserSupportColor(formatInfo.browserSupport)} bg-blue-100 flex-shrink-0`}>
+              {format.toUpperCase()}
             </span>
           </div>
 
-          {/* Progress Bar */}
-          <div className="flex items-center gap-3">
+          {/* Progress Bar - Compact */}
+          <div className="flex items-center gap-2">
             <input
               type="range"
               min="0"
@@ -470,16 +466,16 @@ export default function UniversalAudioPlayer({
               value={currentTime}
               onChange={handleSeek}
               disabled={isLoading || !!error}
-              className="flex-1 h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
+              className="flex-1 h-1.5 sm:h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
               style={{
                 background: `linear-gradient(to right, #2563eb 0%, #2563eb ${(currentTime / (duration || 1)) * 100}%, #bfdbfe ${(currentTime / (duration || 1)) * 100}%, #bfdbfe 100%)`
               }}
             />
             
-            {/* Volume Control */}
-            <div className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            {/* Volume Control - Smaller, desktop only */}
+            <div className="hidden md:flex items-center gap-1">
+              <svg className="w-3 h-3 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
               </svg>
               <input
                 type="range"
@@ -489,7 +485,7 @@ export default function UniversalAudioPlayer({
                 value={volume}
                 onChange={handleVolumeChange}
                 disabled={isLoading || !!error}
-                className="w-20 h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
+                className="w-12 h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
                 style={{
                   background: `linear-gradient(to right, #2563eb 0%, #2563eb ${volume * 100}%, #bfdbfe ${volume * 100}%, #bfdbfe 100%)`
                 }}

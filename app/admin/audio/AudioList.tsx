@@ -442,35 +442,32 @@ export default function AudioList({ admin }: AudioListProps) {
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {filteredRecordings.map((recording) => (
             <div
               key={recording._id}
-              className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-lg transition-shadow"
+              className="bg-white rounded-lg border border-slate-200 p-4 hover:shadow-lg transition-shadow"
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">{getTypeIcon(recording.type)}</span>
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-800">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl flex-shrink-0">{getTypeIcon(recording.type)}</span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-semibold text-slate-800 truncate" title={recording.title}>
                         {recording.title}
                       </h3>
-                      <p className="text-slate-600">by {recording.lecturerName}</p>
+                      <p className="text-sm text-slate-600 truncate">by {recording.lecturerName}</p>
                     </div>
                   </div>
                   
                   {recording.description && (
-                    <p className="text-slate-600 mb-3 line-clamp-2">
+                    <p className="text-sm text-slate-600 mb-2 line-clamp-1">
                       {recording.description}
                     </p>
                   )}
                   
-                  <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                     <span>📅 {new Date(recording.uploadDate).toLocaleDateString()}</span>
-                    {recording.duration > 0 && (
-                      <span>⏱️ {formatDuration(recording.duration)}</span>
-                    )}
                     <span>📊 {formatFileSize(recording.fileSize)}</span>
                     <span className={['amr', 'amr-wb', '3gp', '3gp2', 'wma'].includes(recording.format.toLowerCase()) ? 'text-amber-600' : 'text-emerald-600'}>
                       {['mp3', 'm4a', 'wav', 'flac', 'ogg'].includes(recording.format.toLowerCase()) ? '🎵' : 
@@ -486,35 +483,40 @@ export default function AudioList({ admin }: AudioListProps) {
                   </div>
                   
                   {recording.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {recording.tags.map((tag, index) => (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {recording.tags.slice(0, 3).map((tag, index) => (
                         <span
                           key={index}
-                          className="px-2 py-1 text-xs bg-emerald-100 text-emerald-700 rounded-full"
+                          className="px-1.5 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded-full"
                         >
                           {tag}
                         </span>
                       ))}
+                      {recording.tags.length > 3 && (
+                        <span className="px-1.5 py-0.5 text-xs bg-slate-100 text-slate-500 rounded-full">
+                          +{recording.tags.length - 3}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
                 
-                <div className="flex flex-col items-end gap-2 ml-4">
-                  <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(recording.status)}`}>
+                <div className="flex flex-col items-end gap-1.5 ml-3 flex-shrink-0">
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(recording.status)}`}>
                     {recording.status}
                   </span>
                   
-                  <div className="flex gap-2">
+                  <div className="flex gap-1">
                     <button 
                       onClick={() => handleEdit(recording)}
-                      className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"
+                      className="p-1.5 text-slate-400 hover:text-emerald-600 transition-colors text-sm"
                       title="Edit recording details"
                     >
                       ✏️
                     </button>
                     <button 
                       onClick={() => handlePlay(recording)}
-                      className={`p-2 transition-colors ${
+                      className={`p-1.5 transition-colors text-sm ${
                         playingRecording?._id === recording._id 
                           ? "text-blue-600" 
                           : loadingAudioId === recording._id
@@ -540,7 +542,7 @@ export default function AudioList({ admin }: AudioListProps) {
 
                     <button 
                       onClick={() => handleDelete(recording)}
-                      className="p-2 text-slate-400 hover:text-red-600 transition-colors"
+                      className="p-1.5 text-slate-400 hover:text-red-600 transition-colors text-sm"
                       title="Delete recording"
                     >
                       🗑️
