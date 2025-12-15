@@ -141,99 +141,100 @@ export default function AudioLibrary() {
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
       {/* Header */}
       <div className="bg-white/80 backdrop-blur-sm border-b border-emerald-100 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
-              <Link href="/" className="inline-flex items-center gap-2 text-emerald-700 hover:text-emerald-800 font-semibold">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
+          <div className="flex items-center justify-between h-14 sm:h-16">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+              <Link href="/" className="inline-flex items-center gap-1 sm:gap-2 text-emerald-700 hover:text-emerald-800 font-semibold text-sm sm:text-base">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
-                Back to Radio
+                <span className="hidden sm:inline">Back to Radio</span>
+                <span className="sm:hidden">Back</span>
               </Link>
-              <div className="h-6 w-px bg-emerald-200"></div>
-              <h1 className="text-xl font-bold text-emerald-900">📚 Audio Library</h1>
+              <div className="h-4 sm:h-6 w-px bg-emerald-200"></div>
+              <h1 className="text-lg sm:text-xl font-bold text-emerald-900 truncate">
+                <span className="hidden sm:inline">📚 Audio Library</span>
+                <span className="sm:hidden">📚 Library</span>
+              </h1>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <Link
                 href="/radio"
-                className="px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
+                className="px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
               >
-                📻 Live Radio
+                <span className="hidden sm:inline">📻 Live Radio</span>
+                <span className="sm:hidden">📻 Live</span>
               </Link>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 lg:py-8">
         {/* Search and Filters */}
-        <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-emerald-100 p-6 mb-8">
+        <div className="bg-white/70 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-xl border border-emerald-100 p-4 sm:p-6 mb-6 sm:mb-8">
           <form onSubmit={handleSearch} className="space-y-4">
-            <div className="flex flex-col lg:flex-row gap-4">
-              {/* Search Input */}
-              <div className="flex-1">
-                <input
-                  type="text"
-                  placeholder="Search by title, lecturer, or topic..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
-              </div>
-              
+            {/* Search Input - Full width on mobile */}
+            <div className="w-full">
+              <input
+                type="text"
+                placeholder="Search by title, lecturer, or topic..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              />
+            </div>
+            
+            {/* Filters - Stack on mobile, grid on larger screens */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {/* Type Filter */}
-              <div>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
-                  <option value="all">All Types</option>
-                  <option value="quran">📖 Quran</option>
-                  <option value="hadith">📜 Hadith</option>
-                  <option value="tafsir">📝 Tafsir</option>
-                  <option value="lecture">📚 Lecture</option>
-                  <option value="dua">🤲 Dua</option>
-                </select>
-              </div>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              >
+                <option value="all">All Types</option>
+                <option value="quran">📖 Quran</option>
+                <option value="hadith">📜 Hadith</option>
+                <option value="tafsir">📝 Tafsir</option>
+                <option value="lecture">📚 Lecture</option>
+                <option value="dua">🤲 Dua</option>
+              </select>
               
               {/* Lecturer Filter */}
-              <div>
-                <select
-                  value={filterLecturer}
-                  onChange={(e) => setFilterLecturer(e.target.value)}
-                  className="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
-                  <option value="all">All Lecturers</option>
-                  {lecturers.map((lecturer) => (
-                    <option key={lecturer} value={lecturer}>
-                      {lecturer}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={filterLecturer}
+                onChange={(e) => setFilterLecturer(e.target.value)}
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              >
+                <option value="all">All Lecturers</option>
+                {lecturers.map((lecturer) => (
+                  <option key={lecturer} value={lecturer}>
+                    {lecturer}
+                  </option>
+                ))}
+              </select>
               
               {/* Sort */}
-              <div>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
-                  <option value="uploadDate">Latest First</option>
-                  <option value="title">Title A-Z</option>
-                  <option value="lecturerName">Lecturer A-Z</option>
-                  <option value="playCount">Most Popular</option>
-                </select>
-              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              >
+                <option value="uploadDate">Latest First</option>
+                <option value="title">Title A-Z</option>
+                <option value="lecturerName">Lecturer A-Z</option>
+                <option value="playCount">Most Popular</option>
+              </select>
               
               {/* Search Button */}
               <button
                 type="submit"
-                className="px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-semibold"
+                className="w-full px-4 sm:px-6 py-2.5 sm:py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-semibold text-sm sm:text-base"
               >
-                🔍 Search
+                <span className="hidden sm:inline">🔍 Search</span>
+                <span className="sm:hidden">🔍</span>
               </button>
             </div>
           </form>
@@ -241,14 +242,20 @@ export default function AudioLibrary() {
 
         {/* Results Summary */}
         {pagination && (
-          <div className="flex items-center justify-between mb-6">
-            <p className="text-slate-600">
-              {pagination.totalRecordings} recordings found
-              {searchQuery && ` for "${searchQuery}"`}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-6">
+            <p className="text-sm sm:text-base text-slate-600">
+              <span className="font-medium">{pagination.totalRecordings}</span> recordings found
+              {searchQuery && (
+                <span className="block sm:inline">
+                  <span className="hidden sm:inline"> for </span>
+                  <span className="sm:hidden">Search: </span>
+                  <span className="font-medium">"{searchQuery}"</span>
+                </span>
+              )}
             </p>
             <button
               onClick={fetchRecordings}
-              className="px-4 py-2 text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+              className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 font-medium self-start sm:self-auto"
             >
               🔄 Refresh
             </button>
@@ -290,7 +297,7 @@ export default function AudioLibrary() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                 {recordings.map((recording) => (
                   <AudioCard
                     key={recording._id}
@@ -304,25 +311,25 @@ export default function AudioLibrary() {
 
             {/* Pagination */}
             {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-8">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-2 mt-6 sm:mt-8">
                 <button
                   onClick={() => setCurrentPage(currentPage - 1)}
                   disabled={!pagination.hasPrevPage}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Previous
+                  ← Previous
                 </button>
                 
-                <span className="px-4 py-2 text-sm text-slate-600">
+                <span className="px-4 py-2 text-sm text-slate-600 whitespace-nowrap">
                   Page {pagination.currentPage} of {pagination.totalPages}
                 </span>
                 
                 <button
                   onClick={() => setCurrentPage(currentPage + 1)}
                   disabled={!pagination.hasNextPage}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Next
+                  Next →
                 </button>
               </div>
             )}

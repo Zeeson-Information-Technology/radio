@@ -1,5 +1,47 @@
 import '@testing-library/jest-dom'
 
+// Add Node.js polyfills for browser APIs
+const { TextEncoder, TextDecoder } = require('util')
+global.TextEncoder = TextEncoder
+global.TextDecoder = TextDecoder
+
+// Mock fetch if not available
+if (!global.fetch) {
+  global.fetch = jest.fn()
+}
+
+// Mock FormData if not available
+if (!global.FormData) {
+  global.FormData = class MockFormData {
+    constructor() {
+      this.data = new Map()
+    }
+    
+    append(key, value) {
+      this.data.set(key, value)
+    }
+    
+    get(key) {
+      return this.data.get(key)
+    }
+    
+    has(key) {
+      return this.data.has(key)
+    }
+  }
+}
+
+// Mock File if not available
+if (!global.File) {
+  global.File = class MockFile {
+    constructor(bits, name, options = {}) {
+      this.bits = bits
+      this.name = name
+      this.type = options.type || ''
+    }
+  }
+}
+
 // Mock WebSocket for testing
 global.WebSocket = class MockWebSocket {
   constructor(url) {

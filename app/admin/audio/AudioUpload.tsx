@@ -553,11 +553,11 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
 
         {/* Submit Button */}
         {selectedFile && uploadStatus !== "success" && (
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <button
               type="button"
               onClick={resetForm}
-              className="px-6 py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              className="px-4 sm:px-6 py-2.5 sm:py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors text-sm sm:text-base"
               disabled={uploadStatus === "uploading"}
             >
               Cancel
@@ -565,9 +565,14 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
             <button
               type="submit"
               disabled={uploadStatus === "uploading" || !selectedFile || !title.trim() || !lecturerName.trim()}
-              className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 px-4 sm:px-6 py-2.5 sm:py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
             >
-              {uploadStatus === "uploading" ? "Uploading..." : "Upload Audio"}
+              {uploadStatus === "uploading" ? (
+                <span className="hidden sm:inline">Uploading...</span>
+              ) : (
+                <span className="hidden sm:inline">Upload Audio</span>
+              )}
+              <span className="sm:hidden">{uploadStatus === "uploading" ? "Uploading..." : "Upload"}</span>
             </button>
           </div>
         )}
