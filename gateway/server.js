@@ -532,19 +532,39 @@ class BroadcastGateway {
       if (this.currentBroadcast.user.userId === user.userId) {
         console.log(`🔄 User ${user.email} reconnecting to existing session`);
         
-        // Replace the old WebSocket with the new one
+        // Clear cleanup timeout since user reconnected
+        if (this.currentBroadcast.cleanupTimeout) {
+          clearTimeout(this.currentBroadcast.cleanupTimeout);
+          this.currentBroadcast.cleanupTimeout = null;
+        }
+        
+        // Restore the WebSocket connection
         this.currentBroadcast.ws = ws;
+        this.currentBroadcast.disconnectedAt = null;
         
         // Setup message handlers for new connection
         ws.on('message', this.handleMessage.bind(this, ws, user));
         ws.on('close', this.handleDisconnection.bind(this, user));
         ws.on('error', this.handleError.bind(this, user));
 
-        // Send ready signal
-        ws.send(JSON.stringify({
-          type: 'ready',
-          message: 'Reconnected to existing broadcast session.'
-        }));
+        // Check if session was auto-paused due to disconnection
+        const liveState = await this.getLiveState();
+        if (liveState && liveState.isLive && liveState.isPaused) {
+          // Session was auto-paused, notify client they can resume
+          ws.send(JSON.stringify({
+            type: 'session_recovered',
+            message: 'Session was auto-paused due to disconnection. You can resume broadcasting.',
+            isPaused: true,
+            startedAt: liveState.startedAt?.toISOString(),
+            pausedAt: liveState.pausedAt?.toISOString()
+          }));
+        } else {
+          // Normal reconnection to active session
+          ws.send(JSON.stringify({
+            type: 'ready',
+            message: 'Reconnected to existing broadcast session.'
+          }));
+        }
         
         return;
       } else {
@@ -859,10 +879,19 @@ class BroadcastGateway {
     });
   }
 
-  async pauseStreaming(ws, user) {
+  async pauseStreaming(ws, user, keepFFmpeg = true) {
     console.log(`⏸️ Pausing stream for ${user.email}`);
 
-    // Keep FFmpeg running but update database to paused state
+    // For manual pause, keep FFmpeg running
+    // For disconnection pause, we might want to stop FFmpeg to save resources
+    if (!keepFFmpeg && this.ffmpegProcess) {
+      console.log(`🛑 Stopping FFmpeg during pause to save resources`);
+      this.ffmpegProcess.kill('SIGTERM');
+      this.ffmpegProcess = null;
+      this.isStreaming = false;
+    }
+
+    // Update database to paused state
     await this.updateLiveState({
       isLive: true,
       isPaused: true,
@@ -870,14 +899,23 @@ class BroadcastGateway {
       // Keep title, lecturer, startedAt unchanged
     });
 
-    ws.send(JSON.stringify({
-      type: 'stream_paused',
-      message: 'Stream paused successfully'
-    }));
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'stream_paused',
+        message: 'Stream paused successfully'
+      }));
+    }
   }
 
   async resumeStreaming(ws, user) {
     console.log(`▶️ Resuming stream for ${user.email}`);
+
+    // If FFmpeg process was stopped during disconnection, restart it
+    if (!this.ffmpegProcess || !this.isStreaming) {
+      console.log(`🔄 Restarting FFmpeg for resumed session`);
+      const audioConfig = { sampleRate: 44100, channels: 1, bitrate: 96 };
+      this.startFFmpeg(ws, user, audioConfig);
+    }
 
     // Update database to resume state
     await this.updateLiveState({
@@ -903,6 +941,12 @@ class BroadcastGateway {
 
     this.isStreaming = false;
 
+    // Clear any cleanup timeout
+    if (this.currentBroadcast && this.currentBroadcast.cleanupTimeout) {
+      clearTimeout(this.currentBroadcast.cleanupTimeout);
+      this.currentBroadcast.cleanupTimeout = null;
+    }
+
     // Update database - set offline state
     await this.updateLiveState({
       isLive: false,
@@ -913,10 +957,15 @@ class BroadcastGateway {
       pausedAt: null
     });
 
-    ws.send(JSON.stringify({
-      type: 'stream_stopped',
-      message: 'Stream ended successfully'
-    }));
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'stream_stopped',
+        message: 'Stream ended successfully'
+      }));
+    }
+
+    // Clear the current broadcast session
+    this.currentBroadcast = null;
   }
 
   handleFFmpegError(ws, user, error) {
@@ -949,8 +998,26 @@ class BroadcastGateway {
     console.log(`🔌 Disconnected: ${user.email}`);
 
     if (this.currentBroadcast && this.currentBroadcast.user.userId === user.userId) {
-      await this.stopStreaming(this.currentBroadcast.ws, user);
-      this.currentBroadcast = null;
+      // Auto-pause instead of stopping to allow reconnection
+      console.log(`⏸️ Auto-pausing broadcast for ${user.email} due to disconnection`);
+      
+      // Pause streaming but stop FFmpeg to save resources (will restart on resume)
+      await this.pauseStreaming(null, user, false); // false = don't keep FFmpeg running
+
+      // Clear WebSocket but preserve session for reconnection
+      this.currentBroadcast.ws = null;
+      this.currentBroadcast.disconnectedAt = new Date();
+      
+      // Set timeout to clean up session if admin doesn't reconnect within 30 minutes
+      this.currentBroadcast.cleanupTimeout = setTimeout(async () => {
+        if (this.currentBroadcast && this.currentBroadcast.user.userId === user.userId) {
+          console.log(`🧹 Cleaning up abandoned session for ${user.email} after 30 minutes`);
+          await this.stopStreaming(null, user);
+          this.currentBroadcast = null;
+        }
+      }, 30 * 60 * 1000); // 30 minutes
+      
+      console.log(`📡 Session preserved for ${user.email} - can reconnect within 30 minutes to resume`);
     }
   }
 
