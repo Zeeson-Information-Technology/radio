@@ -102,14 +102,14 @@ export default function AudioPlayer({ recording, onClose }: AudioPlayerProps) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-emerald-200 shadow-2xl z-50">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2 sm:py-3">
-        <div className="flex items-center gap-2 mb-2 sm:mb-3">
-          {/* Recording Info - Compact */}
+    <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-emerald-200 shadow-2xl z-50 safe-area-inset-bottom">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-3 sm:py-4">
+        <div className="flex items-center gap-3 mb-3">
+          {/* Recording Info - Mobile Optimized */}
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="text-lg sm:text-xl flex-shrink-0">{getTypeIcon(recording.type)}</span>
+            <span className="text-xl flex-shrink-0">{getTypeIcon(recording.type)}</span>
             <div className="min-w-0 flex-1">
-              <h3 className="font-semibold text-xs sm:text-sm text-slate-800 truncate">
+              <h3 className="font-semibold text-sm text-slate-800 truncate">
                 {recording.title}
               </h3>
               <p className="text-xs text-slate-600 truncate">
@@ -118,12 +118,13 @@ export default function AudioPlayer({ recording, onClose }: AudioPlayerProps) {
             </div>
           </div>
 
-          {/* Close Button - Smaller */}
+          {/* Close Button - Touch Friendly */}
           <button
             onClick={onClose}
-            className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400 hover:text-slate-600 transition-colors flex-shrink-0"
+            className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors flex-shrink-0 touch-manipulation"
+            aria-label="Close player"
           >
-            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
