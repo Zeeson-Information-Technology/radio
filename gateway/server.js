@@ -1002,10 +1002,7 @@ class BroadcastGateway {
 
     // Ensure streaming state is active
     this.isStreaming = true;
-
-
-
-
+  }
 
   async stopStreaming(ws, user) {
     console.log(`🛑 Stopping stream for ${user.email}`);
