@@ -436,7 +436,7 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                   {admin.role === "super_admin" && (
                     <SuperAdminEmergencyStop 
                       onStop={() => {
-                        setMessage("🛑 Emergency stop executed. Broadcast terminated by super admin.");
+                        setMessage("🛑 Emergency stop executed. Listeners will see the change when they refresh their page.");
                         // Immediately update the live state to reflect the stop
                         setLiveState({
                           isLive: false,
