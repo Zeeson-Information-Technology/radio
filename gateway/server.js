@@ -45,15 +45,13 @@ if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
 
 const s3 = new AWS.S3();
 
-// MongoDB LiveState Schema
+// MongoDB LiveState Schema - Simple with Mute
 const LiveStateSchema = new mongoose.Schema({
   isLive: { type: Boolean, default: false },
-  isPaused: { type: Boolean, default: false },
-  mount: { type: String, default: '/stream' },
+  isMuted: { type: Boolean, default: false },
   title: { type: String, default: null },
   lecturer: { type: String, default: null },
   startedAt: { type: Date, default: null },
-  pausedAt: { type: Date, default: null },
   updatedAt: { type: Date, default: Date.now }
 });
 
@@ -416,11 +414,10 @@ class BroadcastGateway {
         // Update database state
         await this.updateLiveState({
           isLive: false,
-          isPaused: false,
+          isMuted: false,
           title: null,
           lecturer: null,
-          startedAt: null,
-          pausedAt: null
+          startedAt: null
         });
 
         console.log(`✅ Emergency stop completed by ${adminEmail}`);
@@ -617,16 +614,15 @@ class BroadcastGateway {
         ws.on('close', this.handleDisconnection.bind(this, user));
         ws.on('error', this.handleError.bind(this, user));
 
-        // Check if session was auto-paused due to disconnection
+        // Check if session was auto-muted due to disconnection
         const liveState = await this.getLiveState();
-        if (liveState && liveState.isLive && liveState.isPaused) {
-          // Session was auto-paused, notify client they can resume
+        if (liveState && liveState.isLive && liveState.isMuted) {
+          // Session was auto-muted, notify client they can unmute
           ws.send(JSON.stringify({
             type: 'session_recovered',
-            message: 'Session was auto-paused due to disconnection. You can resume broadcasting.',
-            isPaused: true,
-            startedAt: liveState.startedAt?.toISOString(),
-            pausedAt: liveState.pausedAt?.toISOString()
+            message: 'Session was auto-muted due to disconnection. You can unmute to continue broadcasting.',
+            isMuted: true,
+            startedAt: liveState.startedAt?.toISOString()
           }));
         } else {
           // Normal reconnection to active session
@@ -729,6 +725,16 @@ class BroadcastGateway {
 
     try {
       switch (data.type) {
+        case 'configure_latency':
+          if (data.mode === 'ultra_low') {
+            console.log(`🚀 Ultra low-latency mode enabled for ${user.email}`);
+            // Store latency preference for this connection
+            if (this.currentBroadcast) {
+              this.currentBroadcast.latencyMode = 'ultra_low';
+            }
+          }
+          break;
+          
         case 'start_stream':
           this.startStreaming(ws, user, data);
           break;
@@ -737,15 +743,7 @@ class BroadcastGateway {
           this.reconnectStreaming(ws, user, data);
           break;
         
-        case 'pause_stream':
-          console.log(`⏸️ Processing pause request from ${user.email}`);
-          this.pauseStreaming(ws, user, true); // Keep FFmpeg for quick resume
-          break;
-        
-        case 'resume_stream':
-          console.log(`▶️ Processing resume request from ${user.email}`);
-          this.resumeStreaming(ws, user);
-          break;
+
         
         case 'stop_stream':
           console.log(`🛑 Processing stop request from ${user.email}`);
@@ -778,7 +776,7 @@ class BroadcastGateway {
     }
 
     try {
-      // Write audio data to ffmpeg stdin
+      // Send audio data to ffmpeg
       this.ffmpegProcess.stdin.write(audioBuffer);
     } catch (error) {
       console.error('❌ Error writing to ffmpeg:', error);
@@ -797,21 +795,20 @@ class BroadcastGateway {
 
     console.log(`🎙️ Starting stream for ${user.email}`);
 
-    // Low-latency audio config optimized for live broadcasting
+    // Ultra low-latency audio config optimized for live broadcasting
     const audioConfig = {
-      sampleRate: config.sampleRate || 22050, // Reduced from 44100 for lower latency
+      sampleRate: config.sampleRate || 22050, // Keep optimized sample rate
       channels: config.channels || 1, // Mono for Islamic radio
-      bitrate: config.bitrate || 64 // Reduced from 96kbps for lower latency
+      bitrate: config.bitrate || 96 // Increased to 96kbps for better quality/latency balance
     };
 
     // Update database - set live state
     await this.updateLiveState({
       isLive: true,
-      isPaused: false,
+      isMuted: false,
       title: config.title || 'Live Lecture',
       lecturer: user.name || user.email,
-      startedAt: new Date(),
-      pausedAt: null
+      startedAt: new Date()
     });
 
     this.startFFmpeg(ws, user, audioConfig);
@@ -843,22 +840,21 @@ class BroadcastGateway {
     if (liveState && liveState.isLive && liveState.lecturer === currentUserLecturer) {
       console.log(`🎙️ Restarting FFmpeg for ${user.email} (session recovery)`);
       
-      // Low-latency audio config for reconnection
+      // Ultra low-latency audio config for reconnection
       const audioConfig = {
-        sampleRate: config.sampleRate || 22050, // Reduced for lower latency
+        sampleRate: config.sampleRate || 22050, // Keep optimized sample rate
         channels: config.channels || 1,
-        bitrate: config.bitrate || 64 // Reduced for lower latency
+        bitrate: config.bitrate || 96 // Increased for better quality/latency balance
       };
 
       // Don't update startedAt - keep original time
       await this.updateLiveState({
         isLive: true,
-        isPaused: false,
+        isMuted: false,
         title: config.title || liveState.title || 'Live Lecture',
         lecturer: user.name || user.email,
         // Keep original startedAt
-        startedAt: liveState.startedAt,
-        pausedAt: null
+        startedAt: liveState.startedAt
       });
 
       this.startFFmpeg(ws, user, audioConfig);
@@ -878,28 +874,36 @@ class BroadcastGateway {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
     
-    // Low-latency FFmpeg command optimized for live broadcasting
+    // Ultra low-latency FFmpeg command optimized for live broadcasting
     const ffmpegArgs = [
       '-f', 's16le', // Input format: 16-bit signed PCM little-endian
       '-ar', audioConfig.sampleRate.toString(),
       '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0', // Read from stdin
       
-      // Low-latency audio encoding
+      // Ultra low-latency audio encoding
       '-acodec', 'libmp3lame',
-      '-ab', `${audioConfig.bitrate}k`,
+      '-ab', '96k', // Increased from 64k for better quality/speed trade-off
       '-ac', '1', // Force mono output
       '-ar', audioConfig.sampleRate.toString(), // Use configured sample rate
       
-      // Minimize buffering and latency
+      // Minimize all buffering and delays
       '-flush_packets', '1', // Flush packets immediately
-      '-fflags', '+genpts+igndts', // Generate timestamps, ignore DTS
+      '-fflags', '+genpts+igndts+flush_packets', // Enhanced flags
       '-avoid_negative_ts', 'make_zero', // Handle timestamp issues
       '-max_delay', '0', // Minimize muxing delay
+      '-muxdelay', '0', // No mux delay
+      '-muxpreload', '0', // No preload
+      '-thread_queue_size', '1', // Minimal thread queue
+      
+      // Real-time processing optimizations
+      '-re', // Read input at native frame rate
+      '-probesize', '32', // Minimal probe size
+      '-analyzeduration', '0', // No analysis delay
       
       // Icecast metadata
       '-content_type', 'audio/mpeg',
-      '-ice_name', 'Al-Manhaj Radio',
+      '-ice_name', 'Al-Manhaj Radio - Low Latency',
       '-ice_description', `Live from ${user.name || user.email}`,
       '-ice_genre', 'Islamic',
       '-ice_public', '1',
@@ -970,33 +974,7 @@ class BroadcastGateway {
     });
   }
 
-  async pauseStreaming(ws, user, keepFFmpeg = true) {
-    console.log(`⏸️ Pausing stream for ${user.email}`);
 
-    // For manual pause, keep FFmpeg running for quick resume
-    // For disconnection pause, we might want to stop FFmpeg to save resources
-    if (!keepFFmpeg && this.ffmpegProcess) {
-      console.log(`🛑 Stopping FFmpeg during pause to save resources`);
-      this.ffmpegProcess.kill('SIGTERM');
-      this.ffmpegProcess = null;
-      // Don't set isStreaming = false here! Keep session active for stop command
-    }
-
-    // Update database to paused state
-    await this.updateLiveState({
-      isLive: true,
-      isPaused: true,
-      pausedAt: new Date()
-      // Keep title, lecturer, startedAt unchanged
-    });
-
-    if (ws && ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'stream_paused',
-        message: 'Stream paused successfully'
-      }));
-    }
-  }
 
   async resumeStreaming(ws, user) {
     console.log(`▶️ Resuming stream for ${user.email}`);
@@ -1011,29 +989,23 @@ class BroadcastGateway {
       return;
     }
 
+    // Get current state before update
+    const currentState = await this.getLiveState();
+    console.log(`🔍 Current state before unmute: isLive=${currentState?.isLive}, isMuted=${currentState?.isMuted}`);
+
     // If FFmpeg process was stopped during pause, restart it
     if (!this.ffmpegProcess) {
       console.log(`🔄 Restarting FFmpeg for resumed session`);
-      const audioConfig = { sampleRate: 22050, channels: 1, bitrate: 64 };
+      const audioConfig = { sampleRate: 22050, channels: 1, bitrate: 96 };
       this.startFFmpeg(ws, user, audioConfig);
     }
 
     // Ensure streaming state is active
     this.isStreaming = true;
 
-    // Update database to resume state
-    await this.updateLiveState({
-      isLive: true,
-      isPaused: false,
-      pausedAt: null
-      // Keep title, lecturer, startedAt unchanged
-    });
 
-    ws.send(JSON.stringify({
-      type: 'stream_resumed',
-      message: 'Stream resumed successfully'
-    }));
-  }
+
+
 
   async stopStreaming(ws, user) {
     console.log(`🛑 Stopping stream for ${user.email}`);
@@ -1074,11 +1046,11 @@ class BroadcastGateway {
     // Update database - set completely offline state
     await this.updateLiveState({
       isLive: false,
-      isPaused: false,
+      isMuted: false,
       title: null,
       lecturer: null,
       startedAt: null,
-      pausedAt: null
+      mutedAt: null
     });
 
     // Notify client of successful stop
@@ -1116,7 +1088,7 @@ class BroadcastGateway {
     
     setTimeout(() => {
       if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-        this.startFFmpeg(ws, user, { sampleRate: 22050, channels: 1, bitrate: 64 });
+        this.startFFmpeg(ws, user, { sampleRate: 22050, channels: 1, bitrate: 96 });
       }
     }, 1000);
   }
@@ -1125,26 +1097,13 @@ class BroadcastGateway {
     console.log(`🔌 Disconnected: ${user.email}`);
 
     if (this.currentBroadcast && this.currentBroadcast.user.userId === user.userId) {
-      // Auto-pause instead of stopping to allow reconnection
-      console.log(`⏸️ Auto-pausing broadcast for ${user.email} due to disconnection`);
+      // Stop the broadcast when admin disconnects (simplified behavior)
+      console.log(`� Stoppintg broadcast for ${user.email} due to disconnection`);
       
-      // Pause streaming but stop FFmpeg to save resources (will restart on resume)
-      await this.pauseStreaming(null, user, false); // false = don't keep FFmpeg running
-
-      // Clear WebSocket but preserve session for reconnection
-      this.currentBroadcast.ws = null;
-      this.currentBroadcast.disconnectedAt = new Date();
+      await this.stopStreaming(null, user);
+      this.currentBroadcast = null;
       
-      // Set timeout to clean up session if admin doesn't reconnect within 30 minutes
-      this.currentBroadcast.cleanupTimeout = setTimeout(async () => {
-        if (this.currentBroadcast && this.currentBroadcast.user.userId === user.userId) {
-          console.log(`🧹 Cleaning up abandoned session for ${user.email} after 30 minutes`);
-          await this.stopStreaming(null, user);
-          this.currentBroadcast = null;
-        }
-      }, 30 * 60 * 1000); // 30 minutes
-      
-      console.log(`📡 Session preserved for ${user.email} - can reconnect within 30 minutes to resume`);
+      console.log(`📡 Broadcast stopped for ${user.email} - they can start a new session when they return`);
     }
   }
 
@@ -1163,34 +1122,45 @@ class BroadcastGateway {
 
   async updateLiveState(stateData) {
     try {
+      console.log(`📊 updateLiveState called with:`, stateData);
+      
       // Find existing LiveState or create new one
       let liveState = await LiveState.findOne();
       
       if (!liveState) {
+        console.log(`📊 Creating new LiveState document`);
         liveState = new LiveState({
           mount: ICECAST_MOUNT,
           ...stateData,
           updatedAt: new Date()
         });
       } else {
+        console.log(`📊 Updating existing LiveState document`);
+        console.log(`📊 Before update: isLive=${liveState.isLive}, isMuted=${liveState.isMuted}`);
+        
         // Update existing state
         Object.assign(liveState, stateData);
         liveState.updatedAt = new Date();
+        
+        console.log(`📊 After assign: isLive=${liveState.isLive}, isMuted=${liveState.isMuted}`);
       }
 
-      await liveState.save();
+      const savedState = await liveState.save();
+      console.log(`📊 Successfully saved LiveState: isLive=${savedState.isLive}, isMuted=${savedState.isMuted}`);
       console.log(`📊 Updated live state: ${stateData.isLive ? 'LIVE' : 'OFFLINE'}`);
       
       if (stateData.isLive) {
         console.log(`📺 Title: ${stateData.title}`);
         console.log(`🎙️ Lecturer: ${stateData.lecturer}`);
+        console.log(`🔇 Muted: ${stateData.isMuted}`);
       }
       
-      // Note: Listeners will see changes when they manually refresh
-      // This saves significant API costs compared to real-time notifications
+      // Return the saved state for verification
+      return savedState;
       
     } catch (error) {
       console.error('❌ Error updating live state:', error);
+      throw error;
     }
   }
 

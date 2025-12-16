@@ -16,7 +16,7 @@ interface StreamConfig {
   bitrate: number;
 }
 
-type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'paused' | 'error';
+type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error';
 
 export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer }: BrowserEncoderProps) {
   // State management
@@ -27,6 +27,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [message, setMessage] = useState('');
   const [isSupported, setIsSupported] = useState(true);
   const [isMonitoring, setIsMonitoring] = useState(false);
+  const [isFirefox, setIsFirefox] = useState(false);
   
   // Audio processing throttling
   const lastAudioSendRef = useRef<number>(0);
@@ -42,11 +43,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const streamStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Stream configuration
+  // Stream configuration - use browser's default sample rate to avoid conflicts
   const streamConfig: StreamConfig = {
-    sampleRate: 44100,
+    sampleRate: 44100, // Will be updated to match AudioContext
     channels: 1, // Mono for Islamic radio
-    bitrate: 96
+    bitrate: 64 // Reduced for lower latency (matches gateway)
   };
 
   // Check browser support and existing session on mount
@@ -55,6 +56,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
       const hasWebSocket = typeof WebSocket !== 'undefined';
       const hasAudioContext = !!(window.AudioContext || (window as any).webkitAudioContext);
+      
+      // Detect Firefox for specific instructions
+      const isFirefoxBrowser = navigator.userAgent.toLowerCase().includes('firefox');
+      setIsFirefox(isFirefoxBrowser);
       
       const supported = hasGetUserMedia && hasWebSocket && hasAudioContext;
       setIsSupported(supported);
@@ -92,37 +97,30 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                 // This is the current user's session
                 console.log('🔄 Detected existing session for current user:', data.lecturer);
                 
-                if (data.isPaused) {
-                  // Session is already paused
-                  setConnectionState('paused');
-                  setMessage(`Your broadcast is paused. Click "Resume" to continue.`);
-                } else {
-                  // Session is live but admin reloaded - auto-pause it
-                  console.log('📄 Admin page reloaded during live broadcast - auto-pausing');
-                  setConnectionState('paused');
-                  setMessage(`Broadcast auto-paused due to page reload. Click "Resume" to continue.`);
+                // Session is live - just reconnect
+                console.log('📄 Admin page reloaded during live broadcast - reconnecting');
+                setConnectionState('streaming');
+                setMessage(`Reconnected to live broadcast.`);
+                
+                // Reconnect to the existing broadcast
+                try {
+                  const token = await getAuthToken();
+                  const ws = await connectWebSocket(token);
+                  wsRef.current = ws;
                   
-                  // Auto-pause the broadcast on the gateway side
-                  try {
-                    const token = await getAuthToken();
-                    const ws = await connectWebSocket(token);
-                    ws.send(JSON.stringify({ type: 'pause_stream' }));
-                    wsRef.current = ws;
-                    
-                    // Setup message handlers for the paused connection
-                    ws.onmessage = (event) => {
-                      try {
-                        const data = JSON.parse(event.data);
-                        handleGatewayMessage(data);
-                      } catch (error) {
-                        console.error('Error parsing gateway message:', error);
-                      }
-                    };
-                  } catch (error) {
-                    console.error('Error auto-pausing broadcast:', error);
-                    setConnectionState('error');
-                    setErrorMessage(`You have an active broadcast session. Click "Reconnect to Resume" to continue your broadcast.`);
-                  }
+                  // Setup message handlers for the connection
+                  ws.onmessage = (event) => {
+                    try {
+                      const data = JSON.parse(event.data);
+                      handleGatewayMessage(data);
+                    } catch (error) {
+                      console.error('Error parsing gateway message:', error);
+                    }
+                  };
+                } catch (error) {
+                  console.error('Error reconnecting to broadcast:', error);
+                  setConnectionState('error');
+                  setErrorMessage(`You have an active broadcast session. Click "Start Broadcasting" to reconnect.`);
                 }
                 
                 // Calculate elapsed time and start timer
@@ -234,14 +232,24 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const gatewayUrl = process.env.NEXT_PUBLIC_BROADCAST_GATEWAY_URL || 'ws://localhost:8080';
       const ws = new WebSocket(`${gatewayUrl}?token=${token}`);
 
+      // Optimize WebSocket for low latency
+      ws.binaryType = 'arraybuffer'; // Faster than blob for binary data
+
       const timeout = setTimeout(() => {
         ws.close();
         reject(new Error('Connection timeout'));
-      }, 10000);
+      }, 5000); // Reduced from 10000 for faster failure detection
 
       ws.onopen = () => {
         clearTimeout(timeout);
         console.log('✅ Connected to broadcast gateway');
+        
+        // Send low-latency configuration
+        ws.send(JSON.stringify({
+          type: 'configure_latency',
+          mode: 'ultra_low'
+        }));
+        
         resolve(ws);
       };
 
@@ -282,23 +290,33 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         setConnectionState('streaming');
         setMessage('🎙️ Streaming started! You are now live.');
         setErrorMessage('');
+        
+        // Notify listeners of broadcast start
+        fetch('/api/live/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'start',
+            title: title || 'Live Lecture',
+            lecturer: lecturer || 'Unknown'
+          })
+        }).catch(error => console.error('Failed to notify listeners:', error));
+        
         onStreamStart?.();
         break;
 
-      case 'stream_paused':
-        setConnectionState('paused');
-        setMessage('Broadcast paused successfully');
-        setErrorMessage('');
-        break;
 
-      case 'stream_resumed':
-        setConnectionState('streaming');
-        setMessage('🎙️ Streaming resumed! You are now live.');
-        setErrorMessage('');
-        break;
 
       case 'stream_stopped':
         setConnectionState('connected');
+        
+        // Notify listeners of broadcast stop
+        fetch('/api/live/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'stop' })
+        }).catch(error => console.error('Failed to notify listeners:', error));
+        
         onStreamStop?.();
         break;
 
@@ -343,29 +361,50 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     }
   };
 
-  const setupAudioProcessing = async (): Promise<MediaStream> => {
+  const setupAudioProcessing = async (): Promise<{ stream: MediaStream; actualConfig: StreamConfig }> => {
     try {
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: streamConfig.sampleRate,
+      // Firefox-compatible microphone access with fallback constraints
+      let audioConstraints: MediaTrackConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      };
+
+      // Try with advanced constraints first (Chrome/Edge) - but don't force sample rate
+      try {
+        audioConstraints = {
+          ...audioConstraints,
           channelCount: streamConfig.channels
-        }
+        };
+      } catch (e) {
+        // Firefox might not support these constraints, use basic ones
+        console.log('Using basic audio constraints for Firefox compatibility');
+      }
+
+      // Check if getUserMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia is not supported in this browser. Please use Chrome, Firefox, or Edge.');
+      }
+
+      // Request microphone access with Firefox-compatible error handling
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints
       });
 
-      // Create audio context
+      // Create audio context with browser's default sample rate to avoid conflicts
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioContext = new AudioContextClass({
-        sampleRate: streamConfig.sampleRate
-      });
+      const audioContext = new AudioContextClass();
+      
+      console.log(`🎵 AudioContext created with sample rate: ${audioContext.sampleRate}Hz`);
+      
+      // Update stream config to match actual AudioContext sample rate
+      const actualSampleRate = audioContext.sampleRate;
+      console.log(`🎵 Using actual sample rate: ${actualSampleRate}Hz`);
 
-      // Create audio nodes
+      // Create audio nodes with low-latency settings
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const processor = audioContext.createScriptProcessor(1024, 1, 1); // Reduced from 4096 for lower latency
       const gainNode = audioContext.createGain();
 
       // Configure analyser for level meter
@@ -396,8 +435,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
             const now = Date.now();
-            // Throttle to ~20ms intervals to prevent overwhelming the gateway
-            if (now - lastAudioSendRef.current < 20) {
+            // Throttle to ~10ms intervals for lower latency (reduced from 20ms)
+            if (now - lastAudioSendRef.current < 10) {
               return;
             }
             lastAudioSendRef.current = now;
@@ -445,10 +484,102 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       sourceRef.current = source;
       gainNodeRef.current = gainNode;
 
-      return stream;
-    } catch (error) {
+      // Return stream and actual configuration
+      const actualConfig: StreamConfig = {
+        sampleRate: actualSampleRate,
+        channels: streamConfig.channels,
+        bitrate: streamConfig.bitrate
+      };
+      
+      return { stream, actualConfig };
+    } catch (error: any) {
       console.error('❌ Audio setup error:', error);
-      throw new Error('Could not access microphone. Please check permissions.');
+      
+      // Firefox-specific error handling
+      let errorMessage = 'Could not access microphone. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Permission denied. Please:\n' +
+          '1. Click the microphone icon in the address bar\n' +
+          '2. Select "Allow" for microphone access\n' +
+          '3. Refresh the page and try again';
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage += 'No microphone found. Please connect a microphone and try again.';
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorMessage += 'Microphone is being used by another application. Please close other apps using the microphone.';
+      } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+        errorMessage += 'Microphone settings not supported. Trying with basic settings...';
+        
+        // Retry with minimal constraints for Firefox
+        try {
+          const basicStream = await navigator.mediaDevices.getUserMedia({
+            audio: true // Most basic constraint
+          });
+          
+          // If successful with basic constraints, continue with setup
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const audioContext = new AudioContextClass();
+          
+          const source = audioContext.createMediaStreamSource(basicStream);
+          const analyser = audioContext.createAnalyser();
+          const processor = audioContext.createScriptProcessor(4096, 1, 1);
+          const gainNode = audioContext.createGain();
+          
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.8;
+          gainNode.gain.value = 0;
+          
+          source.connect(analyser);
+          source.connect(processor);
+          processor.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          
+          // Store references
+          mediaStreamRef.current = basicStream;
+          audioContextRef.current = audioContext;
+          sourceRef.current = source;
+          analyserRef.current = analyser;
+          processorRef.current = processor;
+          gainNodeRef.current = gainNode;
+          
+          // Setup audio processing
+          processor.onaudioprocess = (event) => {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              const inputBuffer = event.inputBuffer.getChannelData(0);
+              const outputBuffer = new Int16Array(inputBuffer.length);
+              
+              for (let i = 0; i < inputBuffer.length; i++) {
+                outputBuffer[i] = Math.max(-32768, Math.min(32767, inputBuffer[i] * 32768));
+              }
+              
+              wsRef.current.send(outputBuffer.buffer);
+            }
+            
+            // Update audio level
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            setAudioLevel(Math.round((average / 255) * 100));
+          };
+          
+          // Return basic stream with actual AudioContext config
+          const actualConfig: StreamConfig = {
+            sampleRate: audioContext.sampleRate,
+            channels: streamConfig.channels,
+            bitrate: streamConfig.bitrate
+          };
+          
+          return { stream: basicStream, actualConfig };
+        } catch (retryError) {
+          errorMessage += ' Basic microphone access also failed.';
+        }
+      } else if (error.name === 'SecurityError') {
+        errorMessage += 'Security error. Please ensure you\'re using HTTPS or localhost.';
+      } else {
+        errorMessage += `Unexpected error: ${error.message}`;
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 
@@ -504,16 +635,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const ws = await connectWebSocket(token);
       wsRef.current = ws;
 
-      // Setup audio processing
-      await setupAudioProcessing();
+      // Setup audio processing and get actual configuration
+      const { stream, actualConfig } = await setupAudioProcessing();
 
       if (isReconnection) {
-        // For reconnection, send reconnect message
+        // For reconnection, send reconnect message with actual config
         console.log('🔄 Sending reconnect_stream message, duration:', streamDuration);
         ws.send(JSON.stringify({
           type: 'reconnect_stream',
           config: {
-            ...streamConfig,
+            ...actualConfig,
             title: title || 'Live Lecture',
             lecturer: lecturer || 'Unknown'
           }
@@ -532,11 +663,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           console.log('⏱️ Duration timer already running, continuing from', streamDuration, 'seconds');
         }
       } else {
-        // New broadcast
+        // New broadcast with actual configuration
         ws.send(JSON.stringify({
           type: 'start_stream',
           config: {
-            ...streamConfig,
+            ...actualConfig,
             title: title || 'Live Lecture',
             lecturer: lecturer || 'Unknown'
           }
@@ -553,49 +684,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     }
   };
 
-  const pauseBroadcast = () => {
-    if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({ type: 'pause_stream' }));
-    }
-    
-    // Stop audio processing but keep connection and timer
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    
-    if (sourceRef.current) {
-      sourceRef.current.disconnect();
-      sourceRef.current = null;
-    }
-    
-    setConnectionState('paused');
-    setMessage('Broadcast paused. Click Resume to continue.');
-  };
 
-  const resumeBroadcast = async () => {
-    try {
-      setConnectionState('connecting');
-      setMessage('Resuming broadcast...');
-      
-      // Restart audio processing
-      await setupAudioProcessing();
-      
-      if (wsRef.current) {
-        wsRef.current.send(JSON.stringify({ type: 'resume_stream' }));
-      }
-      
-      // Timer should already be running from session detection
-      // No need to restart it - just continue from current elapsed time
-      
-      setConnectionState('streaming');
-      setMessage('');
-    } catch (error) {
-      console.error('Resume error:', error);
-      setConnectionState('error');
-      setErrorMessage('Failed to resume broadcast. Please try again.');
-    }
-  };
 
   const stopBroadcast = () => {
     if (wsRef.current) {
@@ -757,7 +846,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           </div>
 
           {/* Stream Duration - Unified Emerald Theme */}
-          {(connectionState === 'streaming' || connectionState === 'paused') && (
+          {connectionState === 'streaming' && (
             <div className="mb-8 text-center">
               <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-6 border-2 border-emerald-200/50 shadow-lg">
                 <h3 className="text-lg font-bold text-emerald-800 mb-3">Stream Duration</h3>
@@ -845,45 +934,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                 Try Again
               </button>
             ) : connectionState === 'streaming' ? (
-              <div className="flex flex-col sm:flex-row gap-6 justify-center">
-                <button
-                  onClick={pauseBroadcast}
-                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-2xl font-bold text-lg shadow-xl shadow-amber-200 transition-all duration-300 transform hover:scale-105"
-                >
-                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                  </svg>
-                  Pause
-                </button>
+              <div className="text-center">
+                {/* Stop Button */}
                 <button
                   onClick={stopBroadcast}
-                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-red-200 transition-all duration-300 transform hover:scale-105"
+                  className="inline-flex items-center gap-3 px-12 py-6 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-bold text-xl shadow-2xl shadow-red-200 transition-all duration-300 transform hover:scale-105"
                 >
-                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M6 6h12v12H6z"/>
                   </svg>
-                  Stop
-                </button>
-              </div>
-            ) : connectionState === 'paused' ? (
-              <div className="flex flex-col sm:flex-row gap-6 justify-center">
-                <button
-                  onClick={resumeBroadcast}
-                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-emerald-200 transition-all duration-300 transform hover:scale-105"
-                >
-                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
-                  Resume
-                </button>
-                <button
-                  onClick={stopBroadcast}
-                  className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-bold text-lg shadow-xl shadow-red-200 transition-all duration-300 transform hover:scale-105"
-                >
-                  <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 6h12v12H6z"/>
-                  </svg>
-                  Stop
+                  End Broadcast
                 </button>
               </div>
             ) : (
@@ -926,6 +986,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               <div>
                 <p className="font-semibold text-emerald-900">Allow Microphone</p>
                 <p className="text-sm text-emerald-700">Grant permission when prompted</p>
+                {isFirefox && (
+                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                    <p className="font-medium mb-1">🦊 Firefox Users:</p>
+                    <p>If permission fails, click the microphone icon in the address bar and select "Allow"</p>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-start gap-3">

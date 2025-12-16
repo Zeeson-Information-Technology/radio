@@ -37,23 +37,22 @@ export async function POST() {
     let liveState = await LiveState.findOne();
     
     if (!liveState) {
-      liveState = await LiveState.create({
+      liveState = new LiveState({
         isLive: false,
-        isPaused: false,
+        isMuted: false,
         mount: '/stream',
         title: undefined,
         lecturer: undefined,
         startedAt: null,
-        pausedAt: null,
         updatedAt: new Date()
       });
+      await liveState.save();
     } else {
       liveState.isLive = false;
-      liveState.isPaused = false;
+      liveState.isMuted = false;
       liveState.title = undefined;
       liveState.lecturer = undefined;
       liveState.startedAt = null;
-      liveState.pausedAt = null;
       liveState.updatedAt = new Date();
       await liveState.save();
     }

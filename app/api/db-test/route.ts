@@ -19,11 +19,13 @@ export async function GET() {
 
     // If no LiveState exists, create a default one
     if (!liveState) {
-      liveState = await LiveState.create({
+      liveState = new LiveState({
         isLive: false,
+        isMuted: false,
         mount: "/stream",
         title: "Initial state",
       });
+      await liveState.save();
     }
 
     // Return success response
@@ -33,6 +35,7 @@ export async function GET() {
       liveState: {
         id: liveState._id.toString(),
         isLive: liveState.isLive,
+        isMuted: liveState.isMuted,
         mount: liveState.mount,
         title: liveState.title,
         lecturer: liveState.lecturer,

@@ -6,12 +6,11 @@ import mongoose, { Schema, Document, Model } from "mongoose";
  */
 export interface ILiveState extends Document {
   isLive: boolean;
-  isPaused: boolean;
+  isMuted: boolean;
   mount: string;
   lecturer?: string;
   title?: string;
   startedAt?: Date | null;
-  pausedAt?: Date | null;
   updatedAt: Date;
 }
 
@@ -21,7 +20,7 @@ const LiveStateSchema = new Schema<ILiveState>(
       type: Boolean,
       default: false,
     },
-    isPaused: {
+    isMuted: {
       type: Boolean,
       default: false,
     },
@@ -38,11 +37,6 @@ const LiveStateSchema = new Schema<ILiveState>(
       required: false,
     },
     startedAt: {
-      type: Date,
-      required: false,
-      default: null,
-    },
-    pausedAt: {
       type: Date,
       required: false,
       default: null,

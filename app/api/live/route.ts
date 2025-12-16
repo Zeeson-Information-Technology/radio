@@ -27,7 +27,7 @@ export async function GET() {
     if (liveState) {
       console.log("📊 Live API: Database state:", {
         isLive: liveState.isLive,
-        isPaused: liveState.isPaused,
+        isMuted: liveState.isMuted,
         lecturer: liveState.lecturer,
         title: liveState.title,
         startedAt: liveState.startedAt,
@@ -38,16 +38,16 @@ export async function GET() {
     // If no LiveState exists, create a default one
     if (!liveState) {
       console.log("🔍 Live API: Creating default LiveState...");
-      liveState = await LiveState.create({
+      liveState = new LiveState({
         isLive: false,
-        isPaused: false,
+        isMuted: false,
         mount: "/stream",
         title: undefined,
         lecturer: undefined,
         startedAt: null,
-        pausedAt: null,
         updatedAt: new Date()
       });
+      await liveState.save();
       console.log("✅ Live API: Default LiveState created");
     }
 
@@ -58,11 +58,10 @@ export async function GET() {
     const response = {
       ok: true,
       isLive: liveState.isLive || false,
-      isPaused: liveState.isPaused || false,
+      isMuted: liveState.isMuted || false,
       title: liveState.title || null,
       lecturer: liveState.lecturer || null,
       startedAt: liveState.startedAt ? liveState.startedAt.toISOString() : null,
-      pausedAt: liveState.pausedAt ? liveState.pausedAt.toISOString() : null,
       streamUrl,
     };
     
@@ -83,11 +82,10 @@ export async function GET() {
       {
         ok: true, // Changed to true so UI doesn't break
         isLive: false,
-        isPaused: false,
+        isMuted: false,
         title: null,
         lecturer: null,
         startedAt: null,
-        pausedAt: null,
         streamUrl: process.env.STREAM_URL || "http://98.93.42.61:8000/stream",
       }
     );

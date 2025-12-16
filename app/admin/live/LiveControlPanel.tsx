@@ -12,11 +12,9 @@ interface LiveControlPanelProps {
 
 interface LiveState {
   isLive: boolean;
-  isPaused: boolean;
   title: string | null;
   lecturer: string | null;
   startedAt: string | null;
-  pausedAt: string | null;
 }
 
 interface SuperAdminEmergencyStopProps {
@@ -113,11 +111,9 @@ function SuperAdminEmergencyStop({ onStop, onError }: SuperAdminEmergencyStopPro
 export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
   const [liveState, setLiveState] = useState<LiveState>({
     isLive: false,
-    isPaused: false,
     title: null,
     lecturer: null,
     startedAt: null,
-    pausedAt: null,
   });
   const [listenerCount, setListenerCount] = useState<number>(0);
   const [isLoadingListeners, setIsLoadingListeners] = useState(false);
@@ -142,11 +138,9 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
       if (data.ok) {
         setLiveState({
           isLive: data.isLive,
-          isPaused: data.isPaused || false,
           title: data.title,
           lecturer: data.lecturer,
           startedAt: data.startedAt,
-          pausedAt: data.pausedAt || null,
         });
         
         if (data.title) setTitle(data.title);
@@ -380,22 +374,11 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    {liveState.isPaused ? (
-                      <>
-                        <svg className="w-3 h-3 text-yellow-300" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                        </svg>
-                        <span className="text-sm font-bold text-yellow-300">PAUSED</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
-                        </span>
-                        <span className="text-sm font-bold">LIVE NOW</span>
-                      </>
-                    )}
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                    </span>
+                    <span className="text-sm font-bold">LIVE NOW</span>
                   </div>
                   <h3 className="text-2xl font-bold">{liveState.title || "Live Lecture"}</h3>
                   <p className="text-red-100">with {liveState.lecturer || "Unknown"}</p>
@@ -404,11 +387,7 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                       Started: {formatStartTime(liveState.startedAt)}
                     </p>
                   )}
-                  {liveState.isPaused && liveState.pausedAt && (
-                    <p className="text-yellow-200 text-sm">
-                      Paused: {formatStartTime(liveState.pausedAt)}
-                    </p>
-                  )}
+
                 </div>
                 
                 <div className="flex items-center gap-4">
@@ -440,11 +419,9 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                         // Immediately update the live state to reflect the stop
                         setLiveState({
                           isLive: false,
-                          isPaused: false,
                           title: null,
                           lecturer: null,
                           startedAt: null,
-                          pausedAt: null,
                         });
                         // Fetch fresh state from server
                         fetchLiveState();
