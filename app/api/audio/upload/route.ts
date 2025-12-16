@@ -8,6 +8,7 @@ import Tag from "@/lib/models/Tag";
 import { S3Service, extractAudioMetadata } from "@/lib/services/s3";
 import AudioConversionService from "@/lib/services/audioConversion";
 import { getSupportedMimeTypes, getFormatByExtension, SUPPORTED_AUDIO_FORMATS } from "@/lib/utils/audio-formats";
+import jwt from "jsonwebtoken";
 
 export async function POST(request: NextRequest) {
   try {
@@ -181,13 +182,35 @@ export async function POST(request: NextRequest) {
       console.log(`🎵 Triggering conversion for ${detectedFormat} file:`, audioRecording._id);
       
       try {
+        // Generate proper JWT token for gateway authentication
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+          throw new Error('JWT_SECRET not configured');
+        }
+
+        const gatewayToken = jwt.sign(
+          {
+            userId: admin._id.toString(),
+            email: admin.email,
+            role: admin.role,
+            type: 'conversion',
+            iat: Math.floor(Date.now() / 1000),
+          },
+          jwtSecret,
+          {
+            expiresIn: '1h',
+            issuer: 'almanhaj-radio',
+            audience: 'broadcast-gateway'
+          }
+        );
+
         // Call EC2 gateway conversion service
         const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
         const conversionResponse = await fetch(`${gatewayUrl}/api/convert-audio`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.JWT_SECRET}`
+            'Authorization': `Bearer ${gatewayToken}`
           },
           body: JSON.stringify({
             recordId: audioRecording._id.toString(),

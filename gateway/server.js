@@ -1129,44 +1129,16 @@ class BroadcastGateway {
         console.log(`🎙️ Lecturer: ${stateData.lecturer}`);
       }
       
-      // 🚀 SMART NOTIFICATION: Tell all listeners about the change!
-      await this.notifyListeners(liveState);
+      // Note: Listeners will see changes when they manually refresh
+      // This saves significant API costs compared to real-time notifications
       
     } catch (error) {
       console.error('❌ Error updating live state:', error);
     }
   }
 
-  async notifyListeners(liveState) {
-    try {
-      // Get the Next.js app URL (Vercel or localhost)
-      const appUrl = process.env.NEXTJS_URL || 'http://localhost:3000';
-      
-      const response = await fetch(`${appUrl}/api/live/notify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.JWT_SECRET}`
-        },
-        body: JSON.stringify({
-          isLive: liveState.isLive,
-          isPaused: liveState.isPaused,
-          title: liveState.title,
-          lecturer: liveState.lecturer,
-          startedAt: liveState.startedAt?.toISOString()
-        })
-      });
-      
-      if (response.ok) {
-        console.log('📡 Successfully notified listeners of state change');
-      } else {
-        console.log('⚠️ Failed to notify listeners:', response.status);
-      }
-    } catch (error) {
-      console.log('⚠️ Error notifying listeners:', error.message);
-      // Don't fail the main operation if notification fails
-    }
-  }
+  // Removed notifyListeners method to save API costs
+  // Users will manually refresh to see broadcast state changes
 
   setupGracefulShutdown() {
     const shutdown = () => {

@@ -70,44 +70,8 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
     }
   };
 
-  useEffect(() => {
-    // Set up Server-Sent Events for real-time updates
-    const eventSource = new EventSource('/api/live/events');
-    
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'initial' || data.type === 'broadcast_update') {
-          // Update live state from server event
-          setLiveData({
-            ok: true,
-            isLive: data.isLive,
-            isPaused: data.isPaused,
-            title: data.title,
-            lecturer: data.lecturer,
-            startedAt: data.startedAt,
-            streamUrl: data.streamUrl
-          });
-          
-          console.log('📡 Received live update:', data);
-        }
-      } catch (error) {
-        console.error('Error parsing SSE data:', error);
-      }
-    };
-    
-    eventSource.onerror = (error) => {
-      console.error('SSE connection error:', error);
-      // Fallback to manual check if SSE fails
-      checkLiveState();
-    };
-    
-    // Cleanup on unmount
-    return () => {
-      eventSource.close();
-    };
-  }, []);
+  // No automatic updates - users manually refresh when needed
+  // This saves significant costs on API calls and server resources
 
   // Update audio volume
   useEffect(() => {
@@ -440,7 +404,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                             Stay on this page
                           </p>
                           <p className="text-xs text-yellow-700">
-                            You'll be notified automatically when the broadcast resumes. No need to refresh!
+                            Click "Refresh Status" below to check if the broadcast has resumed.
                           </p>
                         </div>
                       </div>
@@ -450,14 +414,14 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                     <button
                       onClick={() => checkLiveState(true)}
                       disabled={isRefreshing}
-                      className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 rounded-lg border border-yellow-200 transition-colors disabled:opacity-50"
+                      className="mt-4 inline-flex items-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg shadow-lg transition-all disabled:opacity-50 font-semibold"
                       title="Check if broadcast has resumed"
                     >
-                      <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
-                      <span className="text-sm font-medium">
-                        {isRefreshing ? 'Checking...' : 'Check Status'}
+                      <span>
+                        {isRefreshing ? 'Checking...' : 'Refresh Status'}
                       </span>
                     </button>
                   </div>
@@ -480,14 +444,14 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                     <button
                       onClick={() => checkLiveState(true)}
                       disabled={isRefreshing}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 transition-colors disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-lg transition-all disabled:opacity-50 font-semibold"
                       title="Check if any broadcast has started"
                     >
-                      <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
-                      <span className="text-sm font-medium">
-                        {isRefreshing ? 'Checking...' : 'Check Live Status'}
+                      <span>
+                        {isRefreshing ? 'Checking...' : 'Check for Live Broadcast'}
                       </span>
                     </button>
                     
@@ -538,10 +502,9 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                   </div>
                 )}
 
-                {/* Auto-refresh indicator */}
-                {/* Real-time update info */}
+                {/* Manual refresh info */}
                 <p className="text-center text-xs text-slate-400 mt-4">
-                  Status updates automatically when broadcasts start, pause, or stop
+                  Click "Check Status" button to get the latest broadcast information
                 </p>
               </div>
             </div>

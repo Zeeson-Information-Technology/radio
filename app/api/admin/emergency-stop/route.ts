@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/server-auth";
 import { connectDB } from "@/lib/db";
 import LiveState from "@/lib/models/LiveState";
+import jwt from "jsonwebtoken";
 
 /**
  * Super Admin Emergency Stop API
@@ -67,12 +68,34 @@ export async function POST(request: NextRequest) {
 
     // Notify the gateway server to stop streaming
     try {
+      // Generate proper JWT token for gateway authentication
+      const jwtSecret = process.env.JWT_SECRET;
+      if (!jwtSecret) {
+        throw new Error('JWT_SECRET not configured');
+      }
+
+      const gatewayToken = jwt.sign(
+        {
+          userId: admin._id.toString(),
+          email: admin.email,
+          role: admin.role,
+          type: 'emergency-stop',
+          iat: Math.floor(Date.now() / 1000),
+        },
+        jwtSecret,
+        {
+          expiresIn: '1h',
+          issuer: 'almanhaj-radio',
+          audience: 'broadcast-gateway'
+        }
+      );
+
       const gatewayUrl = process.env.GATEWAY_URL || 'http://98.93.42.61:8080';
       const response = await fetch(`${gatewayUrl}/api/emergency-stop`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.JWT_SECRET}`
+          'Authorization': `Bearer ${gatewayToken}`
         },
         body: JSON.stringify({
           adminId: admin._id,
@@ -93,28 +116,8 @@ export async function POST(request: NextRequest) {
     console.log(`🛑 Emergency stop completed by ${admin.email}`);
     console.log(`📊 Stopped broadcast: "${originalTitle}" by ${originalLecturer}`);
 
-    // Notify listeners via SSE (if the endpoint exists)
-    try {
-      const appUrl = process.env.NEXTJS_URL || 'http://localhost:3000';
-      await fetch(`${appUrl}/api/live/notify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.JWT_SECRET}`
-        },
-        body: JSON.stringify({
-          isLive: false,
-          isPaused: false,
-          title: null,
-          lecturer: null,
-          startedAt: null,
-          emergencyStop: true,
-          stoppedBy: admin.email
-        })
-      });
-    } catch (notifyError) {
-      console.warn('⚠️ Could not notify listeners of emergency stop:', notifyError);
-    }
+    // Note: Listeners will see the change when they manually refresh the page
+    // This saves significant API costs compared to real-time notifications
 
     return NextResponse.json({
       success: true,
