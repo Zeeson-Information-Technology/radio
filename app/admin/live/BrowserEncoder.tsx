@@ -31,6 +31,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   
   // Audio processing throttling
   const lastAudioSendRef = useRef<number>(0);
+  
+  // Notification flags to prevent duplicate calls
+  const hasNotifiedStartRef = useRef<boolean>(false);
+  const hasNotifiedStopRef = useRef<boolean>(false);
 
   // Refs for audio processing
   const wsRef = useRef<WebSocket | null>(null);
@@ -291,16 +295,21 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         setMessage('🎙️ Streaming started! You are now live.');
         setErrorMessage('');
         
-        // Notify listeners of broadcast start
-        fetch('/api/live/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'start',
-            title: title || 'Live Lecture',
-            lecturer: lecturer || 'Unknown'
-          })
-        }).catch(error => console.error('Failed to notify listeners:', error));
+        // Only notify listeners once per session
+        if (!hasNotifiedStartRef.current) {
+          hasNotifiedStartRef.current = true;
+          hasNotifiedStopRef.current = false; // Reset stop flag
+          
+          fetch('/api/live/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'start',
+              title: title || 'Live Lecture',
+              lecturer: lecturer || 'Unknown'
+            })
+          }).catch(error => console.error('Failed to notify listeners:', error));
+        }
         
         onStreamStart?.();
         break;
@@ -310,12 +319,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       case 'stream_stopped':
         setConnectionState('connected');
         
-        // Notify listeners of broadcast stop
-        fetch('/api/live/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'stop' })
-        }).catch(error => console.error('Failed to notify listeners:', error));
+        // Only notify listeners once per stop
+        if (!hasNotifiedStopRef.current) {
+          hasNotifiedStopRef.current = true;
+          hasNotifiedStartRef.current = false; // Reset start flag
+          
+          fetch('/api/live/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'stop' })
+          }).catch(error => console.error('Failed to notify listeners:', error));
+        }
         
         onStreamStop?.();
         break;
@@ -325,16 +339,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         break;
 
       case 'stream_error':
-        console.error('Stream error from gateway:', data.message);
-        // Only show transient errors briefly, don't persist them
-        if (connectionState === 'streaming') {
-          // Transient error during streaming - show but don't change state
-          console.warn('⚠️ Transient stream error:', data.message);
-          // Don't set error state - stream may recover
+        // Reduce error logging to prevent spam
+        if (data.message.includes('Stream connection lost')) {
+          console.warn('⚠️ Connection instability detected - gateway is reconnecting');
+          // Don't change state for connection recovery attempts
         } else {
-          setConnectionState('error');
-          setErrorMessage(data.message || 'Stream error occurred');
-          onError?.(data.message);
+          console.error('Stream error from gateway:', data.message);
+          if (connectionState !== 'streaming') {
+            setConnectionState('error');
+            setErrorMessage(data.message || 'Stream error occurred');
+            onError?.(data.message);
+          }
         }
         break;
 
@@ -435,8 +450,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
             const now = Date.now();
-            // Throttle to ~10ms intervals for lower latency (reduced from 20ms)
-            if (now - lastAudioSendRef.current < 10) {
+            // Throttle to ~20ms intervals for stability (increased from 10ms)
+            if (now - lastAudioSendRef.current < 20) {
               return;
             }
             lastAudioSendRef.current = now;
@@ -445,6 +460,20 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             
             // Skip empty or invalid audio frames
             if (!audioData || audioData.length === 0) {
+              return;
+            }
+            
+            // Check for valid audio data before processing
+            let hasValidAudio = false;
+            for (let i = 0; i < audioData.length; i++) {
+              if (isFinite(audioData[i]) && Math.abs(audioData[i]) > 0.001) {
+                hasValidAudio = true;
+                break;
+              }
+            }
+            
+            // Only process if we have actual audio content
+            if (!hasValidAudio) {
               return;
             }
             
@@ -467,7 +496,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               wsRef.current.send(int16Data.buffer);
             }
           } catch (error) {
-            console.error('Audio processing error:', error);
+            // Reduce error logging to prevent spam
+            if (Math.random() < 0.01) { // Only log 1% of errors
+              console.warn('Audio processing error (throttled):', error instanceof Error ? error.message : 'Unknown error');
+            }
             // Don't stop streaming on audio processing errors
           }
         }
@@ -624,6 +656,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       setConnectionState('connecting');
       setErrorMessage('');
       setMessage('');
+      
+      // Reset notification flags for new broadcast session
+      hasNotifiedStartRef.current = false;
+      hasNotifiedStopRef.current = false;
 
       // Check if this is a reconnection to existing session
       const isReconnection = errorMessage.includes('active broadcast session');

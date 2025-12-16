@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/server-auth";
 import { connectDB } from "@/lib/db";
 import LiveState from "@/lib/models/LiveState";
+import { broadcastUpdate } from "../events/route";
 
 /**
  * POST /api/live/notify
@@ -83,9 +84,24 @@ export async function POST(request: NextRequest) {
 
     console.log(`📢 Broadcast notification: ${action} by ${admin.email}`);
 
+    // Broadcast real-time update to all listeners
+    const updateData = {
+      type: `broadcast_${action}`,
+      action,
+      isLive: liveState.isLive,
+      isMuted: liveState.isMuted,
+      title: liveState.title || null,
+      lecturer: liveState.lecturer || null,
+      startedAt: liveState.startedAt?.toISOString() || null,
+      timestamp: new Date().toISOString(),
+      streamUrl: process.env.STREAM_URL || "http://98.93.42.61:8000/stream"
+    };
+    
+    broadcastUpdate(updateData);
+
     return NextResponse.json({
       success: true,
-      message: `Listeners will see the ${action} when they refresh`,
+      message: `Listeners will see the ${action} immediately`,
       action,
       state: {
         isLive: liveState.isLive,

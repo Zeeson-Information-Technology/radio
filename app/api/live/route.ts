@@ -11,33 +11,12 @@ import LiveState from "@/lib/models/LiveState";
  */
 export async function GET() {
   try {
-    console.log("🔍 Live API: Starting request");
-    
-    // Connect to database
-    console.log("🔍 Live API: Connecting to database...");
+    // Reduced logging for performance
     await connectDB();
-    console.log("✅ Live API: Database connected");
-
-    // Find the single LiveState document with lean query for better performance
-    console.log("🔍 Live API: Querying LiveState...");
     let liveState = await LiveState.findOne().lean();
-    console.log("✅ Live API: LiveState query complete", liveState ? "Found document" : "No document found");
-    
-    // Debug: Log the actual database state
-    if (liveState) {
-      console.log("📊 Live API: Database state:", {
-        isLive: liveState.isLive,
-        isMuted: liveState.isMuted,
-        lecturer: liveState.lecturer,
-        title: liveState.title,
-        startedAt: liveState.startedAt,
-        updatedAt: liveState.updatedAt
-      });
-    }
 
     // If no LiveState exists, create a default one
     if (!liveState) {
-      console.log("🔍 Live API: Creating default LiveState...");
       liveState = new LiveState({
         isLive: false,
         isMuted: false,
@@ -48,7 +27,6 @@ export async function GET() {
         updatedAt: new Date()
       });
       await liveState.save();
-      console.log("✅ Live API: Default LiveState created");
     }
 
     // Get stream URL from environment
@@ -64,8 +42,6 @@ export async function GET() {
       startedAt: liveState.startedAt ? liveState.startedAt.toISOString() : null,
       streamUrl,
     };
-    
-    console.log("✅ Live API: Returning response", response);
     
     // Create response with cache headers for faster subsequent requests
     const jsonResponse = NextResponse.json(response);

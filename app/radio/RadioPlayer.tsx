@@ -69,39 +69,91 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
     }
   };
 
-  // Auto-refresh every 10 seconds when page is visible (saves resources when hidden)
+  // Real-time updates via Server-Sent Events
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let eventSource: EventSource | null = null;
     
-    const startPolling = () => {
-      interval = setInterval(() => {
-        // Only check if page is visible to save resources
-        if (!document.hidden) {
-          checkLiveState();
-        }
-      }, 10000); // Check every 10 seconds
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Page is hidden, stop polling
-        if (interval) clearInterval(interval);
-      } else {
-        // Page is visible, start polling and check immediately
-        checkLiveState();
-        startPolling();
+    const connectToUpdates = () => {
+      try {
+        eventSource = new EventSource('/api/live/events');
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            // Handle different types of updates
+            switch (data.type) {
+              case 'broadcast_start':
+                console.log('📡 Received broadcast start notification');
+                setLiveData({
+                  ok: true,
+                  isLive: data.isLive,
+                  isMuted: data.isMuted,
+                  title: data.title,
+                  lecturer: data.lecturer,
+                  startedAt: data.startedAt,
+                  streamUrl: data.streamUrl
+                });
+                break;
+                
+              case 'broadcast_stop':
+                console.log('📡 Received broadcast stop notification');
+                setLiveData({
+                  ok: true,
+                  isLive: data.isLive,
+                  isMuted: data.isMuted,
+                  title: data.title,
+                  lecturer: data.lecturer,
+                  startedAt: data.startedAt,
+                  streamUrl: data.streamUrl
+                });
+                break;
+                
+              case 'broadcast_mute':
+              case 'broadcast_unmute':
+                console.log(`📡 Received ${data.action} notification`);
+                setLiveData(prev => ({
+                  ...prev,
+                  isMuted: data.isMuted
+                }));
+                break;
+                
+              case 'connected':
+                console.log('📡 Connected to live updates');
+                break;
+                
+              case 'heartbeat':
+                // Keep connection alive
+                break;
+                
+              default:
+                console.log('📡 Unknown update type:', data.type);
+            }
+          } catch (error) {
+            console.error('Error parsing SSE data:', error);
+          }
+        };
+        
+        eventSource.onerror = (error) => {
+          console.warn('SSE connection error, will retry...', error);
+          eventSource?.close();
+          
+          // Retry connection after 5 seconds
+          setTimeout(connectToUpdates, 5000);
+        };
+        
+      } catch (error) {
+        console.error('Failed to connect to live updates:', error);
       }
     };
-
-    // Start polling immediately
-    startPolling();
     
-    // Listen for visibility changes
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
+    // Connect to real-time updates
+    connectToUpdates();
+    
     return () => {
-      if (interval) clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (eventSource) {
+        eventSource.close();
+      }
     };
   }, []);
 
@@ -469,9 +521,9 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                   </div>
                 )}
 
-                {/* Auto-refresh info */}
+                {/* Real-time updates info */}
                 <p className="text-center text-xs text-slate-400 mt-4">
-                  ✨ Auto-updates every 10 seconds • Click "Check Now" for instant refresh
+                  ✨ Real-time updates • Click "Check Now" for manual refresh
                 </p>
               </div>
             </div>

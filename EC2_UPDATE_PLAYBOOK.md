@@ -1,207 +1,298 @@
-# 🚀 EC2 Gateway Update Playbook
+# EC2 Server Update Playbook
 
-**Use this every time you push code to `main` branch and need to update EC2.**
-
----
+This document provides step-by-step instructions for updating the Al-Manhaj Radio system on the EC2 server via SSH.
 
 ## Prerequisites
-- You have `radio-key.pem` in your Downloads folder
-- You've pushed changes to `main` branch on GitHub
-- You have SSH access to EC2 (98.93.42.61)
 
----
+- SSH access to EC2 server
+- Private key file (`radio-key.pem`) in Downloads folder
+- Git repository access
+- Basic Linux command knowledge
 
-## ⚡ Quick Update (5 minutes)
+## 1. Connect to EC2 Server
 
-### Step 1: SSH into EC2
 ```bash
-cd C:\Users\ibrah\Downloads
+# Navigate to Downloads folder (where radio-key.pem is located)
+cd ~/Downloads
+
+# Connect to EC2 server
 ssh -i radio-key.pem ubuntu@98.93.42.61
 ```
 
-Expected: You see `ubuntu@ip-172-31-78-34:~$`
+## 2. Navigate to Project Directory
 
-### Step 2: Pull latest code from GitHub
+```bash
+# Go to the repository directory
+cd /opt/almanhaj-gateway-repo
+
+# Check current status
+pwd
+git status
+git branch
+```
+
+## 3. Pull Latest Changes
+
+```bash
+# Fetch and pull latest changes from main branch
+git fetch origin
+git pull origin main
+
+# Check what changed
+git log --oneline -5
+```
+
+## 4. Update Gateway Server
+
+```bash
+# Copy updated server.js to deployment directory
+sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
+
+# Verify the file was copied
+ls -la /opt/almanhaj-gateway/server.js
+
+# Check file size to ensure it's the updated version
+wc -l /opt/almanhaj-gateway/server.js
+```
+
+## 5. Restart Services
+
+### Restart Gateway Service
+```bash
+# Restart the gateway service
+sudo systemctl restart almanhaj-gateway
+
+# Check service status
+sudo systemctl status almanhaj-gateway
+
+# Check recent logs
+sudo journalctl -u almanhaj-gateway --since "1 minute ago" --no-pager
+```
+
+### Check Icecast Service (if needed)
+```bash
+# Check Icecast status
+sudo systemctl status icecast2
+
+# Restart Icecast if needed
+sudo systemctl restart icecast2
+
+# Check if port 8000 is listening
+sudo ss -tlnp | grep :8000
+```
+
+## 6. Verify System Health
+
+### Check Gateway Health
+```bash
+# Test gateway health endpoint
+curl -s http://localhost:8080/health | python3 -m json.tool
+
+# Check if gateway is listening on port 8080
+sudo ss -tlnp | grep :8080
+```
+
+### Check Icecast Status
+```bash
+# Check Icecast main page
+curl -s http://localhost:8000/
+
+# Check for active streams (may require auth)
+curl -s http://localhost:8000/admin/stats.xml
+```
+
+### Monitor Logs
+```bash
+# Monitor gateway logs in real-time
+sudo journalctl -u almanhaj-gateway -f
+
+# Check Icecast logs
+sudo tail -f /var/log/icecast2/error.log
+sudo tail -f /var/log/icecast2/access.log
+```
+
+## 7. Test Broadcasting
+
+### Start a Test Broadcast
+1. Go to admin panel: `https://almanhaj.vercel.app/admin/live`
+2. Click "Start Broadcasting"
+3. Monitor logs for connection status
+
+### Check Stream Availability
+```bash
+# Check if stream mount is active
+curl -I http://localhost:8000/stream
+
+# Monitor FFmpeg connections
+ps aux | grep ffmpeg
+
+# Check gateway logs for streaming activity
+sudo journalctl -u almanhaj-gateway --since "2 minutes ago" --no-pager | grep -i stream
+```
+
+## 8. Troubleshooting
+
+### Gateway Issues
+```bash
+# If gateway fails to start, check logs
+sudo journalctl -u almanhaj-gateway --since "5 minutes ago" --no-pager
+
+# Check for syntax errors
+node -c /opt/almanhaj-gateway/server.js
+
+# Check environment variables
+sudo cat /opt/almanhaj-gateway/.env
+```
+
+### Icecast Issues
+```bash
+# Check Icecast configuration
+sudo cat /etc/icecast2/icecast.xml | grep -A5 -B5 source-password
+
+# Check Icecast permissions
+sudo ls -la /var/log/icecast2/
+
+# Restart Icecast with verbose logging
+sudo systemctl stop icecast2
+sudo icecast2 -c /etc/icecast2/icecast.xml
+```
+
+### Network Issues
+```bash
+# Check firewall status
+sudo ufw status
+
+# Check network connections
+sudo netstat -tlnp | grep -E ':(8000|8080)'
+
+# Test external connectivity
+curl -I https://almanhaj.duckdns.org/stream
+```
+
+## 9. Common Update Scenarios
+
+### Code Changes Only
 ```bash
 cd /opt/almanhaj-gateway-repo
-sudo git pull origin main
-```
-
-Expected: Shows `Updating ...` or `Already up to date`
-
-### Step 3: Copy updated gateway files
-```bash
-sudo rm -rf /opt/almanhaj-gateway/*
-sudo cp -r /opt/almanhaj-gateway-repo/gateway/* /opt/almanhaj-gateway/
-sudo chown -R ubuntu:ubuntu /opt/almanhaj-gateway
-```
-
-### Step 4: Install dependencies (if package.json changed)
-```bash
-cd /opt/almanhaj-gateway
-npm install --omit=dev
-```
-
-### Step 5: Restart gateway service
-```bash
+git pull origin main
+sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
 sudo systemctl restart almanhaj-gateway
 ```
 
-### Step 6: Verify it's running
+### Configuration Changes
 ```bash
-sudo systemctl status almanhaj-gateway --no-pager
-```
-
-Expected output:
-```
-Active: active (running)
-🎙️ Broadcast Gateway listening on port 8080
-📡 Icecast target: localhost:8000/stream
-📊 Connected to MongoDB
-```
-
-### Step 7: Confirm port 8080 is listening
-```bash
-sudo ss -tulnp | grep 8080
-```
-
-Expected: Shows Node.js process bound to port 8080
-
----
-
-## ✅ Health Check (verify everything works)
-
-Run these to confirm the system is healthy:
-
-### Check Icecast
-```bash
-sudo systemctl status icecast2 --no-pager
-```
-Expected: `active (running)`
-
-### Check Gateway
-```bash
-sudo systemctl status almanhaj-gateway --no-pager
-```
-Expected: `active (running)` + "Connected to MongoDB"
-
-### Check ports
-```bash
-sudo ss -tulnp | grep -E '8000|8080'
-```
-Expected: Both ports listening
-
-### View gateway logs (if troubleshooting)
-```bash
-sudo journalctl -u almanhaj-gateway -f
-```
-Press `Ctrl+C` to exit
-
----
-
-## 🧪 Functional Test (from browser)
-
-1. **Presenter test:**
-   - Go to: https://almanhaj.vercel.app/admin/live
-   - Click "Start Broadcasting"
-   - Allow microphone
-   - Speak into mic
-   - Check if broadcast starts
-
-2. **Listener test:**
-   - Open new tab: https://almanhaj.vercel.app/radio
-   - Click play button
-   - Audio should stream
-   - No WebSocket errors in browser console
-
-3. **If errors occur:**
-   - Check gateway logs: `sudo journalctl -u almanhaj-gateway -n 50`
-   - Check Icecast: `sudo systemctl status icecast2`
-   - Restart both: `sudo systemctl restart almanhaj-gateway icecast2`
-
----
-
-## 📋 One-Liner Update (copy-paste all at once)
-
-If you want to run everything in one go:
-
-```bash
-cd /opt/almanhaj-gateway-repo && sudo git pull origin main && sudo rm -rf /opt/almanhaj-gateway/* && sudo cp -r /opt/almanhaj-gateway-repo/gateway/* /opt/almanhaj-gateway/ && sudo chown -R ubuntu:ubuntu /opt/almanhaj-gateway && cd /opt/almanhaj-gateway && npm install --omit=dev && sudo systemctl restart almanhaj-gateway && sudo systemctl status almanhaj-gateway --no-pager
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Gateway won't start
-```bash
-sudo journalctl -u almanhaj-gateway -n 20
-```
-Look for error messages. Common issues:
-- Port 8080 already in use: `sudo lsof -i :8080`
-- MongoDB connection failed: Check MONGODB_URI in .env
-- JWT_SECRET mismatch: Verify .env matches Vercel
-
-### Port 8080 in use
-```bash
-sudo lsof -i :8080
-sudo kill -9 <PID>
-sudo systemctl restart almanhaj-gateway
-```
-
-### Need to check/edit .env
-```bash
+# Update environment variables if needed
 sudo nano /opt/almanhaj-gateway/.env
-```
-Save: `Ctrl+X`, `Y`, `Enter`
-Then restart: `sudo systemctl restart almanhaj-gateway`
 
-### View live logs
+# Restart services
+sudo systemctl restart almanhaj-gateway
+sudo systemctl restart icecast2
+```
+
+### Dependency Updates
 ```bash
+cd /opt/almanhaj-gateway-repo
+git pull origin main
+
+# If package.json changed, update dependencies
+cd /opt/almanhaj-gateway
+sudo npm install
+
+# Copy updated files
+sudo cp /opt/almanhaj-gateway-repo/gateway/server.js .
+sudo systemctl restart almanhaj-gateway
+```
+
+## 10. Rollback Procedure
+
+### If Update Fails
+```bash
+# Check git history
+cd /opt/almanhaj-gateway-repo
+git log --oneline -10
+
+# Rollback to previous version
+git checkout <previous-commit-hash>
+sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
+sudo systemctl restart almanhaj-gateway
+
+# Verify rollback worked
+sudo systemctl status almanhaj-gateway
+```
+
+### Emergency Restore
+```bash
+# If system is completely broken, restore from backup
+sudo systemctl stop almanhaj-gateway
+
+# Restore previous working server.js (if you have backup)
+sudo cp /opt/almanhaj-gateway/server.js.backup /opt/almanhaj-gateway/server.js
+
+# Start service
+sudo systemctl start almanhaj-gateway
+```
+
+## 11. Post-Update Verification
+
+### Functional Tests
+1. **Admin Panel**: Can log in and access live controls
+2. **Broadcasting**: Can start/stop broadcasts successfully
+3. **Mute System**: Mute/unmute functionality works
+4. **Listener Page**: Real-time updates work properly
+5. **Audio Stream**: Stream is accessible and plays audio
+
+### Performance Checks
+```bash
+# Check system resources
+htop
+df -h
+free -h
+
+# Monitor service performance
+sudo systemctl status almanhaj-gateway
+sudo systemctl status icecast2
+```
+
+## 12. Maintenance Notes
+
+### Regular Maintenance
+- Update system packages monthly: `sudo apt update && sudo apt upgrade`
+- Check disk space regularly: `df -h`
+- Monitor log file sizes: `sudo du -sh /var/log/*`
+- Backup configuration files before major updates
+
+### Security Updates
+- Keep SSH keys secure
+- Update system packages regularly
+- Monitor access logs for suspicious activity
+- Review firewall rules periodically
+
+---
+
+## Quick Reference Commands
+
+```bash
+# Connect to server
+ssh -i ~/Downloads/radio-key.pem ubuntu@98.93.42.61
+
+# Update code
+cd /opt/almanhaj-gateway-repo && git pull origin main
+
+# Deploy changes
+sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
+
+# Restart service
+sudo systemctl restart almanhaj-gateway
+
+# Check status
+sudo systemctl status almanhaj-gateway
+
+# Monitor logs
 sudo journalctl -u almanhaj-gateway -f
 ```
 
 ---
 
-## 📌 Important Notes
-
-✅ **Do this:**
-- Push to `main` branch
-- SSH and run this playbook
-- Test in browser
-
-❌ **Don't do this:**
-- Edit files directly on EC2 (changes get overwritten on next pull)
-- Manually restart without pulling (you'll miss updates)
-- Give SSH access to presenters (they only use the website)
-
----
-
-## 🎯 Summary
-
-| Step | Command | Time |
-|------|---------|------|
-| SSH | `ssh -i radio-key.pem ubuntu@98.93.42.61` | 5s |
-| Pull | `cd /opt/almanhaj-gateway-repo && sudo git pull origin main` | 10s |
-| Copy | `sudo rm -rf /opt/almanhaj-gateway/* && sudo cp -r ...` | 5s |
-| Install | `npm install --omit=dev` | 30s |
-| Restart | `sudo systemctl restart almanhaj-gateway` | 5s |
-| Verify | `sudo systemctl status almanhaj-gateway --no-pager` | 5s |
-| **Total** | | **~1 minute** |
-
----
-
-## 🚀 You're Production Ready!
-
-Your system is now:
-- ✅ Deployed on EC2
-- ✅ Auto-starting on reboot
-- ✅ Easy to update
-- ✅ Monitoring-ready
-- ✅ Presenter-friendly (no SSH needed for them)
-
-**Next time you update:**
-1. Push to main
-2. Run this playbook
-3. Test in browser
-4. Done! 🎉
+**Last Updated**: December 16, 2025
+**Version**: 1.0
+**Maintainer**: Development Team
