@@ -15,7 +15,12 @@ interface AudioRecording {
   title: string;
   description?: string;
   lecturerName: string;
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
+  category?: {
+    name: string;
+    arabicName?: string;
+    icon?: string;
+  };
   tags: string[];
   year?: number;
   fileName: string;
@@ -116,6 +121,7 @@ export default function AudioList({ admin }: AudioListProps) {
       case "tafsir": return "📝";
       case "lecture": return "📚";
       case "dua": return "🤲";
+      case "qa": return "❓";
       default: return "🎵";
     }
   };
@@ -323,10 +329,11 @@ export default function AudioList({ admin }: AudioListProps) {
               className="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
             >
               <option value="all">All Types</option>
+              <option value="lecture">📚 Lecture</option>
+              <option value="qa">❓ Question & Answer</option>
               <option value="quran">📖 Quran</option>
               <option value="hadith">📜 Hadith</option>
               <option value="tafsir">📝 Tafsir</option>
-              <option value="lecture">📚 Lecture</option>
               <option value="dua">🤲 Dua</option>
             </select>
           </div>

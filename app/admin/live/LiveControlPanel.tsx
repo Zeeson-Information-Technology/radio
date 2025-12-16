@@ -19,6 +19,95 @@ interface LiveState {
   pausedAt: string | null;
 }
 
+interface SuperAdminEmergencyStopProps {
+  onStop: () => void;
+  onError: (error: string) => void;
+}
+
+function SuperAdminEmergencyStop({ onStop, onError }: SuperAdminEmergencyStopProps) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+
+  const handleEmergencyStop = async () => {
+    setIsStopping(true);
+    try {
+      const response = await fetch('/api/admin/emergency-stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Show success and trigger the callback
+        onStop();
+        setIsConfirming(false);
+      } else {
+        onError(data.message || 'Failed to stop broadcast');
+        setIsStopping(false);
+      }
+    } catch (error) {
+      onError('Network error during emergency stop');
+      setIsStopping(false);
+    }
+    // Note: Don't set isStopping to false on success - let the page refresh handle it
+  };
+
+  if (!isConfirming) {
+    return (
+      <button
+        onClick={() => setIsConfirming(true)}
+        className="flex items-center gap-2 px-4 py-2 bg-red-800 hover:bg-red-900 text-white rounded-lg border-2 border-red-600 transition-all font-semibold shadow-lg"
+        title="Emergency stop - terminates any ongoing broadcast immediately"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+        </svg>
+        <span className="hidden sm:inline">Emergency Stop</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 bg-red-900/50 backdrop-blur-sm rounded-lg p-3 border-2 border-red-400">
+      <div className="text-center">
+        <p className="text-white text-sm font-semibold mb-2">
+          {isStopping ? 'Terminating broadcast...' : 'Stop broadcast?'}
+        </p>
+        {isStopping && (
+          <p className="text-yellow-200 text-xs mb-2">
+            Page will refresh automatically
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={handleEmergencyStop}
+            disabled={isStopping}
+            className="px-3 py-1 bg-red-700 hover:bg-red-800 text-white rounded text-sm font-semibold disabled:opacity-50 transition-colors flex items-center gap-1"
+          >
+            {isStopping && (
+              <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            {isStopping ? 'Stopping...' : 'Yes, Stop'}
+          </button>
+          <button
+            onClick={() => setIsConfirming(false)}
+            disabled={isStopping}
+            className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-semibold disabled:opacity-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 
 export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
@@ -289,13 +378,24 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
           {liveState.isLive && (
             <div className="mt-6 bg-gradient-to-r from-red-600 to-rose-600 rounded-2xl shadow-xl p-6 text-white">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
-                    </span>
-                    <span className="text-sm font-bold">LIVE NOW</span>
+                    {liveState.isPaused ? (
+                      <>
+                        <svg className="w-3 h-3 text-yellow-300" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                        </svg>
+                        <span className="text-sm font-bold text-yellow-300">PAUSED</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                        </span>
+                        <span className="text-sm font-bold">LIVE NOW</span>
+                      </>
+                    )}
                   </div>
                   <h3 className="text-2xl font-bold">{liveState.title || "Live Lecture"}</h3>
                   <p className="text-red-100">with {liveState.lecturer || "Unknown"}</p>
@@ -304,27 +404,58 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                       Started: {formatStartTime(liveState.startedAt)}
                     </p>
                   )}
+                  {liveState.isPaused && liveState.pausedAt && (
+                    <p className="text-yellow-200 text-sm">
+                      Paused: {formatStartTime(liveState.pausedAt)}
+                    </p>
+                  )}
                 </div>
-                <div className="text-center">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <div className="text-3xl font-bold">{listenerCount}</div>
-                    <button
-                      onClick={() => fetchListenerCount(true)}
-                      disabled={isLoadingListeners}
-                      className="p-1 hover:bg-white/20 rounded-full transition-colors disabled:opacity-50"
-                      title="Refresh listener count"
-                    >
-                      <svg className={`w-4 h-4 text-white ${isLoadingListeners ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </button>
+                
+                <div className="flex items-center gap-4">
+                  {/* Listener Count */}
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <div className="text-3xl font-bold">{listenerCount}</div>
+                      <button
+                        onClick={() => fetchListenerCount(true)}
+                        disabled={isLoadingListeners}
+                        className="p-1 hover:bg-white/20 rounded-full transition-colors disabled:opacity-50"
+                        title="Refresh listener count"
+                      >
+                        <svg className={`w-4 h-4 text-white ${isLoadingListeners ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="text-red-100 text-sm">
+                      {listenerCount === 1 ? 'listener' : 'listeners'}
+                    </p>
                   </div>
-                  <p className="text-red-100 text-sm">
-                    {listenerCount === 1 ? 'listener' : 'listeners'}
-                  </p>
-                  <p className="text-red-200 text-xs mt-1">
-                    Click refresh icon to update
-                  </p>
+
+                  {/* Super Admin Emergency Stop */}
+                  {admin.role === "super_admin" && (
+                    <SuperAdminEmergencyStop 
+                      onStop={() => {
+                        setMessage("🛑 Emergency stop executed. Broadcast terminated by super admin.");
+                        // Immediately update the live state to reflect the stop
+                        setLiveState({
+                          isLive: false,
+                          isPaused: false,
+                          title: null,
+                          lecturer: null,
+                          startedAt: null,
+                          pausedAt: null,
+                        });
+                        // Fetch fresh state from server
+                        fetchLiveState();
+                        // Refresh the page after a short delay to ensure all components update
+                        setTimeout(() => {
+                          window.location.reload();
+                        }, 2000);
+                      }}
+                      onError={(error) => setError(error)}
+                    />
+                  )}
                 </div>
               </div>
             </div>

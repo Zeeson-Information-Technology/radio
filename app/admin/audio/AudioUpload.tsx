@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { SerializedAdmin } from "@/lib/types/admin";
 import { getSupportedMimeTypes, SUPPORTED_AUDIO_FORMATS, getFormatByExtension } from "@/lib/utils/audio-formats";
 import SupportedFormats from "./SupportedFormats";
@@ -61,13 +61,16 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [lecturerName, setLecturerName] = useState("");
-  const [category, setCategory] = useState("");
-  const [type, setType] = useState<"quran" | "hadith" | "tafsir" | "lecture" | "dua">("lecture");
+  const [type, setType] = useState<"quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa">("lecture");
+
+
   const [tags, setTags] = useState("");
   const [year, setYear] = useState("");
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+
+
 
   // Audio format validation
   const supportedMimeTypes = getSupportedMimeTypes();
@@ -158,8 +161,8 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
     setTitle("");
     setDescription("");
     setLecturerName("");
-    setCategory("");
     setType("lecture");
+
     setTags("");
     setYear("");
     setUploadStatus("idle");
@@ -190,6 +193,8 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
       return;
     }
 
+
+
     setUploadStatus("uploading");
     setError("");
     setMessage("");
@@ -200,8 +205,8 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
       formData.append("title", title.trim());
       formData.append("description", description.trim());
       formData.append("lecturerName", lecturerName.trim());
-      formData.append("category", category || "lecture");
       formData.append("type", type);
+
       formData.append("tags", tags.trim());
       if (year.trim()) {
         formData.append("year", year.trim());
@@ -421,6 +426,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                   required
                 >
                   <option value="lecture">📚 Lecture</option>
+                  <option value="qa">❓ Question & Answer</option>
                   <option value="quran">📖 Quran Recitation</option>
                   <option value="hadith">📜 Hadith</option>
                   <option value="tafsir">📝 Tafsir</option>

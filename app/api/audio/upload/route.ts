@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
     const lecturerName = formData.get("lecturerName") as string;
-    const categoryName = formData.get("category") as string;
+
     const type = formData.get("type") as string;
     const tags = formData.get("tags") as string;
     const year = formData.get("year") as string;
@@ -118,27 +118,21 @@ export async function POST(request: NextRequest) {
     // Find or create lecturer
     const lecturer = await Lecturer.findOrCreate(lecturerName.trim(), admin._id);
 
-    // Find or create category (default to "lecture" if not specified)
-    let category;
-    if (categoryName && categoryName.trim()) {
-      category = await Category.findOne({ name: categoryName.trim() });
-    }
-    if (!category) {
-      // Use default category based on type
-      const defaultCategoryNames = {
-        quran: "Quran Recitation",
-        hadith: "Hadith",
-        tafsir: "Tafsir",
-        lecture: "Islamic Lectures",
-        dua: "Dua & Dhikr"
-      };
-      const defaultName = defaultCategoryNames[type as keyof typeof defaultCategoryNames] || "Islamic Lectures";
-      category = await Category.findOne({ name: defaultName });
-    }
+    // Find or create default category based on type
+    const defaultCategoryNames = {
+      quran: "Quran Recitation",
+      hadith: "Hadith",
+      tafsir: "Tafsir",
+      lecture: "Islamic Lectures",
+      dua: "Dua & Dhikr",
+      qa: "Islamic Lectures" // Q&A sessions are categorized as lectures
+    };
+    const defaultName = defaultCategoryNames[type as keyof typeof defaultCategoryNames] || "Islamic Lectures";
+    const category = await Category.findOne({ name: defaultName });
 
     if (!category) {
       return NextResponse.json(
-        { success: false, message: "Category not found" },
+        { success: false, message: "Default category not found" },
         { status: 400 }
       );
     }
