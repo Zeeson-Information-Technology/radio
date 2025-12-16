@@ -103,6 +103,8 @@ class BroadcastService {
     
     // Ultra low-latency FFmpeg command optimized for live broadcasting
     const ffmpegArgs = [
+      // Input configuration (must come first)
+      '-re', // Read input at native frame rate (input option)
       '-f', 's16le',
       '-ar', audioConfig.sampleRate.toString(),
       '-ac', audioConfig.channels.toString(),
@@ -123,8 +125,7 @@ class BroadcastService {
       '-muxpreload', '0',
       '-thread_queue_size', '1',
       
-      // Real-time processing optimizations
-      '-re',
+      // Analysis optimizations
       '-probesize', '32',
       '-analyzeduration', '0',
       
