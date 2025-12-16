@@ -18,6 +18,7 @@ export async function GET() {
       message: 'Database connection working',
       liveState: liveState ? {
         isLive: liveState.isLive,
+        isMuted: liveState.isMuted,
         title: liveState.title,
         lecturer: liveState.lecturer,
         startedAt: liveState.startedAt,
@@ -46,15 +47,16 @@ export async function POST(request: Request) {
     let liveState = await LiveState.findOne();
     
     if (!liveState) {
-      liveState = await LiveState.create({
+      liveState = new LiveState({
         isLive: isLive || false,
-        isPaused: false,
+        isMuted: false,
         mount: '/stream',
         title: title || 'Test Broadcast',
         lecturer: lecturer || 'Test Lecturer',
         startedAt: isLive ? new Date() : null,
         updatedAt: new Date()
       });
+      await liveState.save();
     } else {
       liveState.isLive = isLive || false;
       liveState.title = title || 'Test Broadcast';
@@ -69,6 +71,7 @@ export async function POST(request: Request) {
       message: 'Live state updated successfully',
       liveState: {
         isLive: liveState.isLive,
+        isMuted: liveState.isMuted,
         title: liveState.title,
         lecturer: liveState.lecturer,
         startedAt: liveState.startedAt

@@ -58,16 +58,19 @@ export async function POST(request: NextRequest) {
     
     if (!liveState) {
       // Create a default offline state if none exists
-      liveState = await LiveState.create({
+      liveState = new LiveState({
         isLive: false,
+        isMuted: false,
         mount: "/stream",
         title: "Offline",
-        lecturer: "",
+        lecturer: undefined,
         startedAt: null,
       });
+      await liveState.save();
     } else {
       // Update LiveState to go offline
       liveState.isLive = false;
+      liveState.isMuted = false;
       liveState.title = liveState.title || "Offline";
       liveState.startedAt = null;
       
@@ -80,6 +83,7 @@ export async function POST(request: NextRequest) {
       message: "Live stream stopped successfully",
       liveState: {
         isLive: liveState.isLive,
+        isMuted: liveState.isMuted,
         title: liveState.title,
         lecturer: liveState.lecturer,
         startedAt: null,

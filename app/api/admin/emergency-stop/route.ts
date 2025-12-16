@@ -56,11 +56,10 @@ export async function POST(request: NextRequest) {
       {},
       {
         isLive: false,
-        isPaused: false,
-        title: null,
-        lecturer: null,
+        isMuted: false,
+        title: undefined,
+        lecturer: undefined,
         startedAt: null,
-        pausedAt: null,
         updatedAt: new Date()
       },
       { upsert: true }

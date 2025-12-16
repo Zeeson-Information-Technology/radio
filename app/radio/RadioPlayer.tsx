@@ -7,7 +7,6 @@ import Link from "next/link";
 interface LiveData {
   ok: boolean;
   isLive: boolean;
-  isPaused: boolean;
   title: string | null;
   lecturer: string | null;
   startedAt: string | null;
@@ -51,7 +50,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
   const [isRefreshing, setIsRefreshing] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Smart event-driven updates - no polling needed!
+  // Smart automatic updates - checks every 10 seconds when page is visible
   const checkLiveState = async (showLoading = false) => {
     try {
       if (showLoading) setIsRefreshing(true);
@@ -70,8 +69,41 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
     }
   };
 
-  // No automatic updates - users manually refresh when needed
-  // This saves significant costs on API calls and server resources
+  // Auto-refresh every 10 seconds when page is visible (saves resources when hidden)
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    const startPolling = () => {
+      interval = setInterval(() => {
+        // Only check if page is visible to save resources
+        if (!document.hidden) {
+          checkLiveState();
+        }
+      }, 10000); // Check every 10 seconds
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is hidden, stop polling
+        if (interval) clearInterval(interval);
+      } else {
+        // Page is visible, start polling and check immediately
+        checkLiveState();
+        startPolling();
+      }
+    };
+
+    // Start polling immediately
+    startPolling();
+    
+    // Listen for visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // Update audio volume
   useEffect(() => {
@@ -184,30 +216,15 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
               {/* Header with Live Status */}
               <div className={`p-8 ${liveData.isLive ? 'bg-gradient-to-r from-red-600 to-rose-600' : 'bg-gradient-to-r from-emerald-600 to-emerald-700'}`}>
                 {liveData.isLive ? (
-                  // LIVE STATE - Show live broadcast info
+                  // LIVE STATE - Show broadcast info
                   <>
                     <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
-                      <div className={`flex items-center gap-2 backdrop-blur-sm rounded-full px-4 py-2 ${
-                        liveData.isPaused 
-                          ? 'bg-yellow-500/20 border border-yellow-400/30' 
-                          : 'bg-white/20'
-                      }`}>
-                        {liveData.isPaused ? (
-                          <>
-                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                            </svg>
-                            <span className="text-sm font-bold text-white">PAUSED</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="relative flex h-3 w-3">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
-                            </span>
-                            <span className="text-sm font-bold text-white">LIVE NOW</span>
-                          </>
-                        )}
+                      <div className="flex items-center gap-2 backdrop-blur-sm rounded-full px-4 py-2 bg-white/20">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                        </span>
+                        <span className="text-sm font-bold text-white">LIVE NOW</span>
                       </div>
                       
                       {/* Volume Control */}
@@ -319,8 +336,8 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
 
               {/* Player Controls */}
               <div className="p-8 bg-gradient-to-br from-slate-50 to-white">
-                {liveData.isLive && !liveData.isPaused ? (
-                  // LIVE AND ACTIVE - Show play button
+                {liveData.isLive ? (
+                  // LIVE - Show play button
                   <div className="flex flex-col items-center">
                     {/* Play/Pause Button */}
                     <button
@@ -351,7 +368,9 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                         setIsPlaying(false);
                         console.error("Audio stream error");
                       }}
-                      preload="none"
+                      preload="metadata"
+                      crossOrigin="anonymous"
+                      playsInline={true}
                     />
 
                     <p className="mt-6 text-lg font-semibold text-slate-700">
@@ -378,53 +397,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                       </div>
                     )}
                   </div>
-                ) : liveData.isLive && liveData.isPaused ? (
-                  // LIVE BUT PAUSED - Show paused state, no play button
-                  <div className="flex flex-col items-center py-8">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center mb-6 shadow-2xl">
-                      <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                      </svg>
-                    </div>
-                    <p className="text-lg font-semibold text-slate-700 mb-2">
-                      Broadcast Temporarily Paused
-                    </p>
-                    <p className="text-sm text-slate-500 text-center max-w-md mb-4">
-                      The presenter has paused the live session. The broadcast will resume shortly, in sha Allah.
-                    </p>
-                    
-                    {/* Paused info */}
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 max-w-md">
-                      <div className="flex items-start gap-3">
-                        <svg className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div>
-                          <p className="text-sm font-medium text-yellow-800 mb-1">
-                            Stay on this page
-                          </p>
-                          <p className="text-xs text-yellow-700">
-                            Click "Refresh Status" below to check if the broadcast has resumed.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Check Live Status Button */}
-                    <button
-                      onClick={() => checkLiveState(true)}
-                      disabled={isRefreshing}
-                      className="mt-4 inline-flex items-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg shadow-lg transition-all disabled:opacity-50 font-semibold"
-                      title="Check if broadcast has resumed"
-                    >
-                      <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      <span>
-                        {isRefreshing ? 'Checking...' : 'Refresh Status'}
-                      </span>
-                    </button>
-                  </div>
+
                 ) : (
                   // OFFLINE - Show message, no play button
                   <div className="flex flex-col items-center py-8">
@@ -445,13 +418,13 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                       onClick={() => checkLiveState(true)}
                       disabled={isRefreshing}
                       className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-lg transition-all disabled:opacity-50 font-semibold"
-                      title="Check if any broadcast has started"
+                      title="Check now (auto-updates every 10 seconds)"
                     >
                       <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
                       <span>
-                        {isRefreshing ? 'Checking...' : 'Check for Live Broadcast'}
+                        {isRefreshing ? 'Checking...' : 'Check Now'}
                       </span>
                     </button>
                     
@@ -462,16 +435,10 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                 )}
 
                 {/* Info Message */}
-                {liveData.isLive && !liveData.isPaused ? (
+                {liveData.isLive ? (
                   <div className="mt-8 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
                     <p className="text-sm text-emerald-800 text-center">
                       🎙️ You are listening to a live broadcast. May Allah bless you and increase you in knowledge.
-                    </p>
-                  </div>
-                ) : liveData.isLive && liveData.isPaused ? (
-                  <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-                    <p className="text-sm text-yellow-800 text-center">
-                      ⏸️ The live session is temporarily paused. Please wait for the presenter to resume, in sha Allah.
                     </p>
                   </div>
                 ) : (
@@ -502,9 +469,9 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                   </div>
                 )}
 
-                {/* Manual refresh info */}
+                {/* Auto-refresh info */}
                 <p className="text-center text-xs text-slate-400 mt-4">
-                  Click "Check Status" button to get the latest broadcast information
+                  ✨ Auto-updates every 10 seconds • Click "Check Now" for instant refresh
                 </p>
               </div>
             </div>

@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<icecast>
+    <!-- Location and Admin -->
+    <location>Nigeria</location>
+    <admin>admin@almanhaj.radio</admin>
+
+    <!-- Ultra Low-Latency Limits -->
+    <limits>
+        <clients>100</clients>
+        <sources>2</sources>
+        <queue-size>32768</queue-size>      <!-- Reduced from 524288 for lower latency -->
+        <client-timeout>5</client-timeout>   <!-- Reduced from 30 for faster response -->
+        <header-timeout>3</header-timeout>   <!-- Reduced from 15 for faster headers -->
+        <source-timeout>3</source-timeout>   <!-- Reduced from 10 for faster source detection -->
+        <burst-on-connect>1</burst-on-connect>
+        <burst-size>8192</burst-size>        <!-- Reduced from 65535 for minimal initial buffer -->
+    </limits>
+
+    <!-- Authentication -->
+    <authentication>
+        <!-- Replace with your actual passwords -->
+        <source-password>YOUR_SOURCE_PASSWORD</source-password>
+        <relay-password>YOUR_RELAY_PASSWORD</relay-password>
+        <admin-user>admin</admin-user>
+        <admin-password>YOUR_ADMIN_PASSWORD</admin-password>
+    </authentication>
+
+    <!-- Hostname -->
+    <hostname>98.93.42.61</hostname>
+
+    <!-- Listen Socket -->
+    <listen-socket>
+        <port>8000</port>
+        <!-- Bind to all interfaces for external access -->
+        <bind-address>0.0.0.0</bind-address>
+    </listen-socket>
+
+    <!-- Paths -->
+    <paths>
+        <basedir>/usr/share/icecast2</basedir>
+        <logdir>/var/log/icecast2</logdir>
+        <webroot>/usr/share/icecast2/web</webroot>
+        <adminroot>/usr/share/icecast2/admin</adminroot>
+        <alias source="/" destination="/status.xsl"/>
+    </paths>
+
+    <!-- Logging -->
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <loglevel>3</loglevel>
+        <logsize>10000</logsize>
+    </logging>
+
+    <!-- Security -->
+    <security>
+        <chroot>0</chroot>
+    </security>
+
+    <!-- Low-Latency Mount Point Configuration -->
+    <mount>
+        <mount-name>/stream</mount-name>
+        <username>source</username>
+        <password>YOUR_SOURCE_PASSWORD</password>
+        <max-listeners>100</max-listeners>
+        
+        <!-- Ultra Low-Latency Settings -->
+        <burst-size>4096</burst-size>        <!-- Minimal burst for fastest start -->
+        <queue-size>16384</queue-size>       <!-- Minimal queue for lowest latency -->
+        
+        <!-- Stream Metadata -->
+        <public>1</public>
+        <stream-name>Al-Manhaj Radio - Ultra Low Latency</stream-name>
+        <stream-description>Islamic lectures and Quran recitation - Optimized for minimal delay</stream-description>
+        <stream-url>https://almanhaj.vercel.app</stream-url>
+        <genre>Religious</genre>
+        <bitrate>96</bitrate>                <!-- Match FFmpeg bitrate -->
+        <type>audio/mpeg</type>
+        
+        <!-- Fallback Configuration -->
+        <fallback-mount>/offline.mp3</fallback-mount>
+        <fallback-override>1</fallback-override>
+        <fallback-when-full>1</fallback-when-full>
+    </mount>
+
+    <!-- Optional: Offline/Fallback Mount -->
+    <mount>
+        <mount-name>/offline.mp3</mount-name>
+        <public>0</public>
+        <stream-name>Al-Manhaj Radio - Offline</stream-name>
+        <stream-description>We are currently offline. Please check back later.</stream-description>
+        <type>audio/mpeg</type>
+    </mount>
+</icecast>
