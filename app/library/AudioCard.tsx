@@ -15,8 +15,8 @@ interface AudioRecording {
   category?: {
     name: string;
     arabicName?: string;
-    icon: string;
-    color: string;
+    icon?: string;
+    color?: string;
   };
 }
 

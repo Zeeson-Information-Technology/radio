@@ -14,18 +14,13 @@ interface AudioRecording {
     name: string;
     arabicName?: string;
     icon?: string;
+    color?: string;
   };
   year?: number;
   duration: number;
   format: string;
   uploadDate: string;
   playCount: number;
-  category: {
-    name: string;
-    arabicName?: string;
-    icon: string;
-    color: string;
-  };
 }
 
 interface AudioPlaybackData {

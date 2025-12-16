@@ -15,6 +15,7 @@ interface AudioRecording {
     name: string;
     arabicName?: string;
     icon?: string;
+    color?: string;
   };
   tags: string[];
   year?: number;
@@ -22,12 +23,6 @@ interface AudioRecording {
   format: string;
   uploadDate: string;
   playCount: number;
-  category: {
-    name: string;
-    arabicName?: string;
-    icon: string;
-    color: string;
-  };
 }
 
 interface PaginationInfo {
