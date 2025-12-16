@@ -372,6 +372,76 @@ class BroadcastGateway {
       });
     });
 
+    // Emergency stop endpoint for super admins
+    this.app.post('/api/emergency-stop', this.authenticateToken.bind(this), async (req, res) => {
+      try {
+        const { adminId, adminEmail, reason } = req.body;
+
+        console.log(`🚨 Emergency stop received from admin: ${adminEmail}`);
+        console.log(`📋 Reason: ${reason}`);
+
+        // Force stop any active broadcast
+        if (this.currentBroadcast) {
+          console.log(`🛑 Terminating active broadcast by ${this.currentBroadcast.user.email}`);
+          
+          // Stop FFmpeg process
+          if (this.ffmpegProcess) {
+            this.ffmpegProcess.kill('SIGTERM');
+            this.ffmpegProcess = null;
+          }
+
+          // Clear streaming state
+          this.isStreaming = false;
+          
+          // Clear any cleanup timeouts
+          if (this.currentBroadcast.cleanupTimeout) {
+            clearTimeout(this.currentBroadcast.cleanupTimeout);
+          }
+
+          // Notify the broadcaster if still connected
+          if (this.currentBroadcast.ws && this.currentBroadcast.ws.readyState === 1) {
+            this.currentBroadcast.ws.send(JSON.stringify({
+              type: 'emergency_stop',
+              message: 'Broadcast terminated by administrator',
+              stoppedBy: adminEmail,
+              reason: reason
+            }));
+            this.currentBroadcast.ws.close();
+          }
+
+          // Clear the broadcast session
+          this.currentBroadcast = null;
+        }
+
+        // Update database state
+        await this.updateLiveState({
+          isLive: false,
+          isPaused: false,
+          title: null,
+          lecturer: null,
+          startedAt: null,
+          pausedAt: null
+        });
+
+        console.log(`✅ Emergency stop completed by ${adminEmail}`);
+
+        res.json({
+          success: true,
+          message: 'Emergency stop executed successfully',
+          stoppedBy: adminEmail,
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (error) {
+        console.error('❌ Emergency stop error:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Emergency stop failed',
+          message: error.message
+        });
+      }
+    });
+
     // Audio conversion endpoints
     this.app.post('/api/convert-audio', this.authenticateToken.bind(this), async (req, res) => {
       try {

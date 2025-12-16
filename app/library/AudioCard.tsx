@@ -5,7 +5,13 @@ interface AudioRecording {
   title: string;
   description?: string;
   lecturerName: string;
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
+  category?: {
+    name: string;
+    arabicName?: string;
+    icon?: string;
+  };
+
   tags: string[];
   year?: number;
   duration: number;
@@ -45,6 +51,7 @@ export default function AudioCard({ recording, onPlay, isPlaying }: AudioCardPro
       case "tafsir": return "📝";
       case "lecture": return "📚";
       case "dua": return "🤲";
+      case "qa": return "❓";
       default: return "🎵";
     }
   };

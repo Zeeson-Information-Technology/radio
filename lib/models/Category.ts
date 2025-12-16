@@ -234,6 +234,14 @@ CategorySchema.statics.createDefaults = async function(this: any): Promise<void>
       icon: "🤲",
       color: "#ea580c",
       displayOrder: 5
+    },
+    {
+      name: "Question and Answer",
+      arabicName: "الأسئلة والأجوبة",
+      description: "Q&A sessions and interactive discussions",
+      icon: "❓",
+      color: "#9333ea",
+      displayOrder: 6
     }
   ];
   

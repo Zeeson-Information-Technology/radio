@@ -97,10 +97,11 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
     },
     type: {
       type: String,
-      enum: ["quran", "hadith", "tafsir", "lecture", "dua"],
+      enum: ["quran", "hadith", "tafsir", "lecture", "dua", "qa"],
       required: true,
       index: true,
     },
+
     tags: {
       type: [String],
       default: [],
