@@ -727,33 +727,48 @@ class BroadcastGateway {
   handleControlMessage(ws, user, data) {
     console.log(`📨 Control message from ${user.email}:`, data.type);
 
-    switch (data.type) {
-      case 'start_stream':
-        this.startStreaming(ws, user, data);
-        break;
-      
-      case 'reconnect_stream':
-        this.reconnectStreaming(ws, user, data);
-        break;
-      
-      case 'pause_stream':
-        this.pauseStreaming(ws, user);
-        break;
-      
-      case 'resume_stream':
-        this.resumeStreaming(ws, user);
-        break;
-      
-      case 'stop_stream':
-        this.stopStreaming(ws, user);
-        break;
-      
-      case 'ping':
-        ws.send(JSON.stringify({ type: 'pong' }));
-        break;
-      
-      default:
-        console.log('⚠️ Unknown control message:', data.type);
+    try {
+      switch (data.type) {
+        case 'start_stream':
+          this.startStreaming(ws, user, data);
+          break;
+        
+        case 'reconnect_stream':
+          this.reconnectStreaming(ws, user, data);
+          break;
+        
+        case 'pause_stream':
+          console.log(`⏸️ Processing pause request from ${user.email}`);
+          this.pauseStreaming(ws, user, true); // Keep FFmpeg for quick resume
+          break;
+        
+        case 'resume_stream':
+          console.log(`▶️ Processing resume request from ${user.email}`);
+          this.resumeStreaming(ws, user);
+          break;
+        
+        case 'stop_stream':
+          console.log(`🛑 Processing stop request from ${user.email}`);
+          this.stopStreaming(ws, user);
+          break;
+        
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+        
+        default:
+          console.log('⚠️ Unknown control message:', data.type);
+          ws.send(JSON.stringify({ 
+            type: 'error', 
+            message: `Unknown command: ${data.type}` 
+          }));
+      }
+    } catch (error) {
+      console.error(`❌ Error handling control message ${data.type}:`, error);
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: `Failed to process ${data.type}: ${error.message}` 
+      }));
     }
   }
 
@@ -782,11 +797,11 @@ class BroadcastGateway {
 
     console.log(`🎙️ Starting stream for ${user.email}`);
 
-    // Default audio config
+    // Low-latency audio config optimized for live broadcasting
     const audioConfig = {
-      sampleRate: config.sampleRate || 44100,
+      sampleRate: config.sampleRate || 22050, // Reduced from 44100 for lower latency
       channels: config.channels || 1, // Mono for Islamic radio
-      bitrate: config.bitrate || 96 // 96kbps for good quality/bandwidth balance
+      bitrate: config.bitrate || 64 // Reduced from 96kbps for lower latency
     };
 
     // Update database - set live state
@@ -828,11 +843,11 @@ class BroadcastGateway {
     if (liveState && liveState.isLive && liveState.lecturer === currentUserLecturer) {
       console.log(`🎙️ Restarting FFmpeg for ${user.email} (session recovery)`);
       
-      // Default audio config
+      // Low-latency audio config for reconnection
       const audioConfig = {
-        sampleRate: config.sampleRate || 44100,
+        sampleRate: config.sampleRate || 22050, // Reduced for lower latency
         channels: config.channels || 1,
-        bitrate: config.bitrate || 96
+        bitrate: config.bitrate || 64 // Reduced for lower latency
       };
 
       // Don't update startedAt - keep original time
@@ -863,18 +878,24 @@ class BroadcastGateway {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
     
-    // FFmpeg command to encode PCM to MP3 and stream to Icecast
+    // Low-latency FFmpeg command optimized for live broadcasting
     const ffmpegArgs = [
       '-f', 's16le', // Input format: 16-bit signed PCM little-endian
       '-ar', audioConfig.sampleRate.toString(),
       '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0', // Read from stdin
       
-      // Audio encoding
+      // Low-latency audio encoding
       '-acodec', 'libmp3lame',
       '-ab', `${audioConfig.bitrate}k`,
       '-ac', '1', // Force mono output
-      '-ar', '44100', // Standard sample rate
+      '-ar', audioConfig.sampleRate.toString(), // Use configured sample rate
+      
+      // Minimize buffering and latency
+      '-flush_packets', '1', // Flush packets immediately
+      '-fflags', '+genpts+igndts', // Generate timestamps, ignore DTS
+      '-avoid_negative_ts', 'make_zero', // Handle timestamp issues
+      '-max_delay', '0', // Minimize muxing delay
       
       // Icecast metadata
       '-content_type', 'audio/mpeg',
@@ -883,7 +904,7 @@ class BroadcastGateway {
       '-ice_genre', 'Islamic',
       '-ice_public', '1',
       
-      // Output to Icecast
+      // Output to Icecast with minimal buffering
       '-f', 'mp3',
       icecastUrl
     ];
@@ -952,13 +973,13 @@ class BroadcastGateway {
   async pauseStreaming(ws, user, keepFFmpeg = true) {
     console.log(`⏸️ Pausing stream for ${user.email}`);
 
-    // For manual pause, keep FFmpeg running
+    // For manual pause, keep FFmpeg running for quick resume
     // For disconnection pause, we might want to stop FFmpeg to save resources
     if (!keepFFmpeg && this.ffmpegProcess) {
       console.log(`🛑 Stopping FFmpeg during pause to save resources`);
       this.ffmpegProcess.kill('SIGTERM');
       this.ffmpegProcess = null;
-      this.isStreaming = false;
+      // Don't set isStreaming = false here! Keep session active for stop command
     }
 
     // Update database to paused state
@@ -980,12 +1001,25 @@ class BroadcastGateway {
   async resumeStreaming(ws, user) {
     console.log(`▶️ Resuming stream for ${user.email}`);
 
-    // If FFmpeg process was stopped during disconnection, restart it
-    if (!this.ffmpegProcess || !this.isStreaming) {
+    // Validate that we have an active broadcast session
+    if (!this.currentBroadcast || this.currentBroadcast.user.userId !== user.userId) {
+      console.error(`❌ No active broadcast session for ${user.email}`);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'No active broadcast session to resume'
+      }));
+      return;
+    }
+
+    // If FFmpeg process was stopped during pause, restart it
+    if (!this.ffmpegProcess) {
       console.log(`🔄 Restarting FFmpeg for resumed session`);
-      const audioConfig = { sampleRate: 44100, channels: 1, bitrate: 96 };
+      const audioConfig = { sampleRate: 22050, channels: 1, bitrate: 64 };
       this.startFFmpeg(ws, user, audioConfig);
     }
+
+    // Ensure streaming state is active
+    this.isStreaming = true;
 
     // Update database to resume state
     await this.updateLiveState({
@@ -1004,11 +1038,31 @@ class BroadcastGateway {
   async stopStreaming(ws, user) {
     console.log(`🛑 Stopping stream for ${user.email}`);
 
+    // Validate user has permission to stop (either their session or force stop)
+    if (this.currentBroadcast && this.currentBroadcast.user.userId !== user.userId) {
+      console.warn(`⚠️ User ${user.email} trying to stop stream owned by ${this.currentBroadcast.user.email}`);
+      // Allow super admins to force stop, otherwise deny
+      if (user.role !== 'super_admin') {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'You can only stop your own broadcast'
+        }));
+        return;
+      }
+    }
+
+    // Always kill FFmpeg process if it exists (regardless of pause state)
     if (this.ffmpegProcess) {
-      this.ffmpegProcess.kill('SIGTERM');
+      console.log(`🛑 Terminating FFmpeg process`);
+      try {
+        this.ffmpegProcess.kill('SIGTERM');
+      } catch (error) {
+        console.warn(`⚠️ Error killing FFmpeg:`, error.message);
+      }
       this.ffmpegProcess = null;
     }
 
+    // Reset all streaming state
     this.isStreaming = false;
 
     // Clear any cleanup timeout
@@ -1017,7 +1071,7 @@ class BroadcastGateway {
       this.currentBroadcast.cleanupTimeout = null;
     }
 
-    // Update database - set offline state
+    // Update database - set completely offline state
     await this.updateLiveState({
       isLive: false,
       isPaused: false,
@@ -1027,6 +1081,7 @@ class BroadcastGateway {
       pausedAt: null
     });
 
+    // Notify client of successful stop
     if (ws && ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({
         type: 'stream_stopped',
@@ -1034,8 +1089,10 @@ class BroadcastGateway {
       }));
     }
 
-    // Clear the current broadcast session
+    // Clear the current broadcast session completely
     this.currentBroadcast = null;
+    
+    console.log(`✅ Stream stopped successfully for ${user.email}`);
   }
 
   handleFFmpegError(ws, user, error) {
@@ -1059,7 +1116,7 @@ class BroadcastGateway {
     
     setTimeout(() => {
       if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-        this.startFFmpeg(ws, user, { sampleRate: 44100, channels: 1, bitrate: 96 });
+        this.startFFmpeg(ws, user, { sampleRate: 22050, channels: 1, bitrate: 64 });
       }
     }, 1000);
   }

@@ -6,19 +6,13 @@ interface AudioRecording {
   description?: string;
   lecturerName: string;
   type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
-  category?: {
-    name: string;
-    arabicName?: string;
-    icon?: string;
-  };
-
   tags: string[];
   year?: number;
   duration: number;
   format: string;
   uploadDate: string;
   playCount: number;
-  category: {
+  category?: {
     name: string;
     arabicName?: string;
     icon: string;
