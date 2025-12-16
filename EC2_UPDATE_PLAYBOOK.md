@@ -42,18 +42,41 @@ git pull origin main
 git log --oneline -5
 ```
 
-## 4. Update Gateway Server
+## 4. Update Gateway Server (Modular Structure)
+
+The gateway has been refactored into a modular structure. Update the entire gateway directory:
 
 ```bash
-# Copy updated server.js to deployment directory
-sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
+# Stop the gateway service first
+sudo systemctl stop almanhaj-gateway
 
-# Verify the file was copied
-ls -la /opt/almanhaj-gateway/server.js
+# Backup current gateway (optional)
+sudo cp -r /opt/almanhaj-gateway /opt/almanhaj-gateway-backup-$(date +%Y%m%d-%H%M%S)
 
-# Check file size to ensure it's the updated version
+# Copy the entire updated gateway directory
+sudo cp -r gateway/* /opt/almanhaj-gateway/
+
+# Install/update dependencies
+cd /opt/almanhaj-gateway
+sudo npm install
+
+# Verify the modular structure
+ls -la /opt/almanhaj-gateway/
+ls -la /opt/almanhaj-gateway/services/
+ls -la /opt/almanhaj-gateway/routes/
+
+# Check main server file size (should be much smaller now)
 wc -l /opt/almanhaj-gateway/server.js
 ```
+
+### New Modular Structure
+The gateway is now organized into focused modules:
+- `config/` - Configuration management
+- `services/` - Business logic (Database, Broadcast, AudioConversion)
+- `middleware/` - Authentication middleware
+- `routes/` - API endpoints
+- `websocket/` - WebSocket handling
+- `server.js` - Main orchestration (now ~100 lines vs 1188 lines)
 
 ## 5. Restart Services
 
@@ -171,12 +194,23 @@ curl -I https://almanhaj.duckdns.org/stream
 
 ## 9. Common Update Scenarios
 
-### Code Changes Only
+### Code Changes Only (Modular Structure)
 ```bash
 cd /opt/almanhaj-gateway-repo
 git pull origin main
-sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
-sudo systemctl restart almanhaj-gateway
+
+# Stop service before updating
+sudo systemctl stop almanhaj-gateway
+
+# Copy entire gateway directory (modular structure)
+sudo cp -r gateway/* /opt/almanhaj-gateway/
+
+# Install any new dependencies
+cd /opt/almanhaj-gateway
+sudo npm install
+
+# Start service
+sudo systemctl start almanhaj-gateway
 ```
 
 ### Configuration Changes
@@ -198,9 +232,10 @@ git pull origin main
 cd /opt/almanhaj-gateway
 sudo npm install
 
-# Copy updated files
-sudo cp /opt/almanhaj-gateway-repo/gateway/server.js .
-sudo systemctl restart almanhaj-gateway
+# Copy updated files (entire gateway directory)
+sudo systemctl stop almanhaj-gateway
+sudo cp -r /opt/almanhaj-gateway-repo/gateway/* .
+sudo systemctl start almanhaj-gateway
 ```
 
 ## 10. Rollback Procedure
@@ -278,8 +313,10 @@ ssh -i ~/Downloads/radio-key.pem ubuntu@98.93.42.61
 # Update code
 cd /opt/almanhaj-gateway-repo && git pull origin main
 
-# Deploy changes
-sudo cp gateway/server.js /opt/almanhaj-gateway/server.js
+# Deploy changes (modular structure)
+sudo systemctl stop almanhaj-gateway
+sudo cp -r gateway/* /opt/almanhaj-gateway/
+cd /opt/almanhaj-gateway && sudo npm install
 
 # Restart service
 sudo systemctl restart almanhaj-gateway
