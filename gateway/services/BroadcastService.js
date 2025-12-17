@@ -24,12 +24,14 @@ class BroadcastService {
 
     console.log(`🎙️ Starting stream for ${user.email}`);
 
-    // Ultra low-latency audio config optimized for live broadcasting
+    // Ultra low-latency audio config - use browser's native sample rate
     const audioConfig = {
-      sampleRate: streamConfig.sampleRate || 22050,
+      sampleRate: streamConfig.sampleRate || 44100, // Default to common browser rate
       channels: streamConfig.channels || 1,
       bitrate: streamConfig.bitrate || 96
     };
+    
+    console.log(`🎵 Gateway received audio config: ${audioConfig.sampleRate}Hz, ${audioConfig.channels}ch, ${audioConfig.bitrate}kbps`);
 
     // Update database - set live state
     await this.databaseService.updateLiveState({
@@ -57,7 +59,7 @@ class BroadcastService {
         type: 'stream_started',
         message: 'Reconnected to existing stream',
         config: {
-          sampleRate: streamConfig.sampleRate || 44100,
+          sampleRate: streamConfig.sampleRate || 44100, // Default to common browser rate
           channels: streamConfig.channels || 1,
           bitrate: streamConfig.bitrate || 96
         }
@@ -70,10 +72,12 @@ class BroadcastService {
       console.log(`🎙️ Restarting FFmpeg for ${user.email} (session recovery)`);
       
       const audioConfig = {
-        sampleRate: streamConfig.sampleRate || 22050,
+        sampleRate: streamConfig.sampleRate || 44100, // Default to common browser rate
         channels: streamConfig.channels || 1,
         bitrate: streamConfig.bitrate || 96
       };
+      
+      console.log(`🔄 Gateway reconnecting with audio config: ${audioConfig.sampleRate}Hz`);
 
       // Don't update startedAt - keep original time
       await this.databaseService.updateLiveState({
@@ -286,7 +290,7 @@ class BroadcastService {
     
     setTimeout(() => {
       if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-        this.startFFmpeg(ws, user, { sampleRate: 22050, channels: 1, bitrate: 96 });
+        this.startFFmpeg(ws, user, { sampleRate: 44100, channels: 1, bitrate: 96 }); // Use common default
       }
     }, 1000);
   }

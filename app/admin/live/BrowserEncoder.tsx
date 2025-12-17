@@ -47,11 +47,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const streamStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Stream configuration - use browser's default sample rate to avoid conflicts
+  // Stream configuration - let browser use its native sample rate
   const streamConfig: StreamConfig = {
-    sampleRate: 44100, // Will be updated to match AudioContext
+    sampleRate: 0, // Will be set to browser's native rate
     channels: 1, // Mono for Islamic radio
-    bitrate: 64 // Reduced for lower latency (matches gateway)
+    bitrate: 96 // Match gateway bitrate
   };
 
   // Check browser support and existing session on mount
@@ -406,15 +406,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         audio: audioConstraints
       });
 
-      // Create audio context with browser's default sample rate to avoid conflicts
+      // Create audio context with browser's native sample rate
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContextClass();
       
-      console.log(`🎵 AudioContext created with sample rate: ${audioContext.sampleRate}Hz`);
-      
-      // Update stream config to match actual AudioContext sample rate
       const actualSampleRate = audioContext.sampleRate;
-      console.log(`🎵 Using actual sample rate: ${actualSampleRate}Hz`);
+      console.log(`🎵 AudioContext created with browser native sample rate: ${actualSampleRate}Hz`);
+      console.log(`🌐 Browser: ${navigator.userAgent.includes('Firefox') ? 'Firefox' : navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Other'}`);
+      
+      // Update stream config to use actual sample rate
+      streamConfig.sampleRate = actualSampleRate;
 
       // Create audio nodes with low-latency settings
       const source = audioContext.createMediaStreamSource(stream);
@@ -478,6 +479,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             }
             
             // Convert Float32Array (-1.0 to 1.0) to Int16Array (-32768 to 32767) for s16le format
+            // No resampling needed - gateway will handle the actual sample rate
             const int16Data = new Int16Array(audioData.length);
             for (let i = 0; i < audioData.length; i++) {
               // Handle NaN and Infinity values
@@ -516,12 +518,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       sourceRef.current = source;
       gainNodeRef.current = gainNode;
 
-      // Return stream and actual configuration
+      // Return stream and actual browser configuration
       const actualConfig: StreamConfig = {
-        sampleRate: actualSampleRate,
+        sampleRate: actualSampleRate, // Use browser's native rate
         channels: streamConfig.channels,
         bitrate: streamConfig.bitrate
       };
+      
+      console.log(`📤 Sending audio config to gateway: ${actualSampleRate}Hz, ${streamConfig.channels}ch, ${streamConfig.bitrate}kbps`);
       
       return { stream, actualConfig };
     } catch (error: any) {
@@ -596,10 +600,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           
           // Return basic stream with actual AudioContext config
           const actualConfig: StreamConfig = {
-            sampleRate: audioContext.sampleRate,
+            sampleRate: audioContext.sampleRate, // Use browser's native rate
             channels: streamConfig.channels,
             bitrate: streamConfig.bitrate
           };
+          
+          console.log(`📤 Sending audio config to gateway (Firefox fallback): ${audioContext.sampleRate}Hz`);
           
           return { stream: basicStream, actualConfig };
         } catch (retryError) {
