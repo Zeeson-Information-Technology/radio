@@ -1,73 +1,44 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { connectDB } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
+import { connectToDatabase } from '@/lib/mongodb';
 import LiveState from '@/lib/models/LiveState';
-import { verifyAuthToken } from '@/lib/auth';
 
-/**
- * POST /api/admin/live/force-stop
- * Force stop any active broadcast (for session recovery)
- */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    // Get authentication token from cookies
-    const cookieStore = await cookies();
-    const token = cookieStore.get('admin_token')?.value;
-
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
-    }
-
-    // Verify admin token
-    const payload = verifyAuthToken(token);
-    if (!payload) {
-      return NextResponse.json(
-        { error: 'Invalid or expired token' },
-        { status: 401 }
-      );
-    }
+    console.log('🛑 Force stop broadcast requested');
 
     // Connect to database
-    await connectDB();
+    await connectToDatabase();
 
-    // Force stop any active broadcast
-    let liveState = await LiveState.findOne();
-    
-    if (!liveState) {
-      liveState = new LiveState({
+    // Force reset the live state
+    await LiveState.findOneAndUpdate(
+      {},
+      {
         isLive: false,
         isMuted: false,
-        mount: '/stream',
-        title: undefined,
-        lecturer: undefined,
+        title: null,
+        lecturer: null,
         startedAt: null,
         updatedAt: new Date()
-      });
-      await liveState.save();
-    } else {
-      liveState.isLive = false;
-      liveState.isMuted = false;
-      liveState.title = undefined;
-      liveState.lecturer = undefined;
-      liveState.startedAt = null;
-      liveState.updatedAt = new Date();
-      await liveState.save();
-    }
+      },
+      { upsert: true }
+    );
 
-    console.log(`🛑 Force stopped broadcast by ${payload.userId}`);
+    console.log('✅ Live state force reset to offline');
 
     return NextResponse.json({
-      ok: true,
-      message: 'Broadcast forcefully stopped'
+      success: true,
+      message: 'Broadcast session force stopped',
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Force stop error:', error);
+    console.error('❌ Force stop error:', error);
     return NextResponse.json(
-      { error: 'Failed to force stop broadcast' },
+      {
+        success: false,
+        error: 'Failed to force stop broadcast',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }
