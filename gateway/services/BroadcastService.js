@@ -24,11 +24,11 @@ class BroadcastService {
 
     console.log(`🎙️ Starting stream for ${user.email}`);
 
-    // Ultra low-latency audio config optimized for live broadcasting
+    // Standard audio config for reliable streaming (no distortion)
     const audioConfig = {
-      sampleRate: streamConfig.sampleRate || 22050,
-      channels: streamConfig.channels || 1,
-      bitrate: streamConfig.bitrate || 96
+      sampleRate: streamConfig.sampleRate || 44100, // Standard CD quality sample rate
+      channels: streamConfig.channels || 1,         // Mono for voice/radio
+      bitrate: streamConfig.bitrate || 128          // Standard streaming bitrate
     };
 
     // Update database - set live state
@@ -101,34 +101,31 @@ class BroadcastService {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
     
-    // Low-latency FFmpeg command for live broadcasting
+    // Standard FFmpeg configuration for reliable audio streaming
     const ffmpegArgs = [
-      // Input configuration
+      // Input: Raw 16-bit signed little-endian PCM
       '-f', 's16le',
-      '-ar', audioConfig.sampleRate.toString(),
-      '-ac', audioConfig.channels.toString(),
+      '-ar', audioConfig.sampleRate.toString(),  // Use browser's actual sample rate
+      '-ac', audioConfig.channels.toString(),    // Input channels
       '-i', 'pipe:0',
       
-      // Audio encoding
+      // Audio encoding with standard parameters
       '-acodec', 'libmp3lame',
-      '-ab', '96k',
-      '-ac', '1',
-      '-ar', audioConfig.sampleRate.toString(),
+      '-b:a', `${audioConfig.bitrate}k`,         // Audio bitrate (128k standard)
+      '-ar', '44100',                            // Output sample rate (standard CD quality)
+      '-ac', '1',                                // Output channels (mono for radio)
       
-      // Low latency flags
-      '-flush_packets', '1',
-      '-fflags', '+genpts+flush_packets',
-      '-max_delay', '0',
+      // Standard MP3 streaming format
+      '-f', 'mp3',
       
       // Icecast metadata
       '-content_type', 'audio/mpeg',
-      '-ice_name', 'Al-Manhaj Radio - Low Latency',
+      '-ice_name', 'Al-Manhaj Radio',
       '-ice_description', `Live from ${user.name || user.email}`,
       '-ice_genre', 'Islamic',
       '-ice_public', '1',
       
-      // Output to Icecast with minimal buffering
-      '-f', 'mp3',
+      // Output to Icecast
       icecastUrl
     ];
 
