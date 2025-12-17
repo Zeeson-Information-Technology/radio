@@ -107,31 +107,29 @@ class BroadcastService {
     
     // Ultra low-latency FFmpeg command optimized for live broadcasting
     const ffmpegArgs = [
-      // Input configuration (must come first)
-      '-re', // Read input at native frame rate (input option)
+      // Input configuration
       '-f', 's16le',
       '-ar', audioConfig.sampleRate.toString(),
       '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0',
       
-      // Ultra low-latency audio encoding
+      // Real-time audio encoding optimized for live streaming
       '-acodec', 'libmp3lame',
       '-ab', '96k',
       '-ac', '1',
       '-ar', audioConfig.sampleRate.toString(),
+      '-q:a', '2', // Quality setting for MP3 (2 = high quality, fast encoding)
       
-      // Minimize all buffering and delays
+      // Real-time processing flags
+      '-fflags', 'nobuffer+flush_packets',
+      '-flags', 'low_delay',
+      '-strict', 'experimental',
       '-flush_packets', '1',
-      '-fflags', '+genpts+igndts+flush_packets',
-      '-avoid_negative_ts', 'make_zero',
+      
+      // Minimize buffering
       '-max_delay', '0',
       '-muxdelay', '0',
       '-muxpreload', '0',
-      '-thread_queue_size', '1',
-      
-      // Analysis optimizations
-      '-probesize', '32',
-      '-analyzeduration', '0',
       
       // Icecast metadata
       '-content_type', 'audio/mpeg',

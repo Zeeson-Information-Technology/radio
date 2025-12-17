@@ -417,10 +417,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       // Update stream config to use actual sample rate
       streamConfig.sampleRate = actualSampleRate;
 
-      // Create audio nodes with low-latency settings
+      // Create audio nodes with balanced latency/stability settings
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const processor = audioContext.createScriptProcessor(1024, 1, 1); // Reduced from 4096 for lower latency
+      const processor = audioContext.createScriptProcessor(2048, 1, 1); // Balanced buffer size
       const gainNode = audioContext.createGain();
 
       // Configure analyser for level meter
@@ -451,8 +451,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
             const now = Date.now();
-            // Throttle to ~20ms intervals for stability (increased from 10ms)
-            if (now - lastAudioSendRef.current < 20) {
+            // Minimal throttling for real-time streaming (5ms = ~200 packets/sec)
+            if (now - lastAudioSendRef.current < 5) {
               return;
             }
             lastAudioSendRef.current = now;
