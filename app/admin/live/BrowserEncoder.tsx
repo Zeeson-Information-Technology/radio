@@ -46,10 +46,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const gainNodeRef = useRef<GainNode | null>(null);
   const streamStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Stream configuration - let browser use its native sample rate
+  
+  // Stream configuration - use gateway's expected sample rate
   const streamConfig: StreamConfig = {
-    sampleRate: 0, // Will be set to browser's native rate
+    sampleRate: 22050, // Match gateway expectation
     channels: 1, // Mono for Islamic radio
     bitrate: 96 // Match gateway bitrate
   };
@@ -377,6 +377,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   };
 
   const setupAudioProcessing = async (): Promise<{ stream: MediaStream; actualConfig: StreamConfig }> => {
+    console.log('🎤 setupAudioProcessing called');
     try {
       // Firefox-compatible microphone access with fallback constraints
       let audioConstraints: MediaTrackConstraints = {
@@ -384,6 +385,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         noiseSuppression: true,
         autoGainControl: true
       };
+      console.log('🎤 Audio constraints:', audioConstraints);
 
       // Try with advanced constraints first (Chrome/Edge) - but don't force sample rate
       try {
@@ -402,25 +404,24 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       }
 
       // Request microphone access with Firefox-compatible error handling
+      console.log('🎤 Requesting microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints
       });
+      console.log('✅ Microphone access granted');
 
       // Create audio context with browser's native sample rate
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContextClass();
       
       const actualSampleRate = audioContext.sampleRate;
-      console.log(`🎵 AudioContext created with browser native sample rate: ${actualSampleRate}Hz`);
+      console.log(`🎵 AudioContext created with sample rate: ${actualSampleRate}Hz`);
       console.log(`🌐 Browser: ${navigator.userAgent.includes('Firefox') ? 'Firefox' : navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Other'}`);
-      
-      // Update stream config to use actual sample rate
-      streamConfig.sampleRate = actualSampleRate;
 
-      // Create audio nodes with balanced latency/stability settings
+      // Create audio nodes with low-latency settings
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const processor = audioContext.createScriptProcessor(2048, 1, 1); // Balanced buffer size
+      const processor = audioContext.createScriptProcessor(4096, 1, 1); // Standard buffer size
       const gainNode = audioContext.createGain();
 
       // Configure analyser for level meter
@@ -451,8 +452,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
             const now = Date.now();
-            // Minimal throttling for real-time streaming (5ms = ~200 packets/sec)
-            if (now - lastAudioSendRef.current < 5) {
+            // Throttle to prevent overwhelming the network (10ms intervals)
+            if (now - lastAudioSendRef.current < 10) {
               return;
             }
             lastAudioSendRef.current = now;
@@ -520,7 +521,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       // Return stream and actual browser configuration
       const actualConfig: StreamConfig = {
-        sampleRate: actualSampleRate, // Use browser's native rate
+        sampleRate: actualSampleRate, // Use browser's actual rate
         channels: streamConfig.channels,
         bitrate: streamConfig.bitrate
       };
@@ -600,7 +601,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           
           // Return basic stream with actual AudioContext config
           const actualConfig: StreamConfig = {
-            sampleRate: audioContext.sampleRate, // Use browser's native rate
+            sampleRate: audioContext.sampleRate,
             channels: streamConfig.channels,
             bitrate: streamConfig.bitrate
           };
@@ -663,6 +664,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       setErrorMessage('');
       setMessage('');
       
+      console.log('🎬 Starting broadcast process...');
+      
       // Reset notification flags for new broadcast session
       hasNotifiedStartRef.current = false;
       hasNotifiedStopRef.current = false;
@@ -671,14 +674,24 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const isReconnection = errorMessage.includes('active broadcast session');
 
       // Get authentication token
+      console.log('🔑 Getting authentication token...');
       const token = await getAuthToken();
+      console.log('✅ Token received');
 
       // Connect to gateway
+      console.log('🔌 Connecting to WebSocket gateway...');
       const ws = await connectWebSocket(token);
       wsRef.current = ws;
+      console.log('✅ WebSocket connected');
 
       // Setup audio processing and get actual configuration
+      console.log('🎤 Setting up audio processing...');
       const { stream, actualConfig } = await setupAudioProcessing();
+      console.log('✅ Audio processing setup complete');
+      
+      // Wait a moment for WebSocket to be fully ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('✅ WebSocket ready to send messages');
 
       if (isReconnection) {
         // For reconnection, send reconnect message with actual config
@@ -706,20 +719,29 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         }
       } else {
         // New broadcast with actual configuration
-        ws.send(JSON.stringify({
+        const startMessage = {
           type: 'start_stream',
           config: {
             ...actualConfig,
             title: title || 'Live Lecture',
             lecturer: lecturer || 'Unknown'
           }
-        }));
+        };
+        
+        console.log('📤 Sending start_stream message:', startMessage);
+        ws.send(JSON.stringify(startMessage));
+        console.log('✅ start_stream message sent');
         
         startDurationTimer();
       }
 
     } catch (error) {
       console.error('❌ Start broadcast error:', error);
+      console.error('Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       setConnectionState('error');
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start broadcast');
       cleanup();
@@ -740,21 +762,46 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
   const forceStopBroadcast = async () => {
     try {
-      // Force stop via API call
+      console.log('🛑 Force stopping broadcast session...');
+      
+      // First try the force stop API
       const response = await fetch('/api/admin/live/force-stop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
 
       if (response.ok) {
+        console.log('✅ Force stop successful');
+        cleanup();
         setConnectionState('disconnected');
         setErrorMessage('');
-        setMessage('Broadcast forcefully stopped. You can start a new session.');
+        setMessage('Session reset. You can start a new broadcast.');
       } else {
-        setErrorMessage('Failed to force stop broadcast. Please try again.');
+        console.log('⚠️ Force stop API failed, trying direct reset...');
+        
+        // If force stop fails, try direct database reset
+        const resetResponse = await fetch('/api/live/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            action: 'stop',
+            force: true 
+          })
+        });
+        
+        if (resetResponse.ok) {
+          console.log('✅ Database reset successful');
+          cleanup();
+          setConnectionState('disconnected');
+          setErrorMessage('');
+          setMessage('Database reset. You can start a new broadcast.');
+        } else {
+          setErrorMessage('Failed to reset session. Please contact support.');
+        }
       }
     } catch (error) {
-      setErrorMessage('Error stopping broadcast. Please try again.');
+      console.error('❌ Force stop error:', error);
+      setErrorMessage('Error resetting session. Please try again.');
     }
   };
 
@@ -1000,6 +1047,22 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               </button>
             )}
           </div>
+          
+          {/* Force Stop Button for Admins */}
+          {(connectionState === 'connected' || connectionState === 'error') && (
+            <div className="mt-6 text-center">
+              <button
+                onClick={forceStopBroadcast}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white rounded-xl font-semibold shadow-lg transition-all duration-300"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                </svg>
+                Force Stop Session
+              </button>
+            </div>
+          )}
         </div>
 
       </div>

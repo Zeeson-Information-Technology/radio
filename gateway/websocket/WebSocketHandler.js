@@ -138,25 +138,23 @@ class WebSocketHandler {
   handleMessage(ws, user, message) {
     try {
       // Check if message is string (JSON control message) or binary (audio data)
-      if (typeof message === 'string') {
-        const data = JSON.parse(message);
+      if (typeof message === 'string' || (message instanceof Buffer && message[0] === 0x7B)) {
+        const data = JSON.parse(message.toString());
         this.handleControlMessage(ws, user, data);
       } else if (message instanceof ArrayBuffer || message instanceof Buffer) {
-        // Binary audio data - handle silently
+        // Binary audio data
         this.handleAudioData(ws, user, message);
       } else {
         console.log('⚠️ Unknown message type:', typeof message, message.constructor.name);
       }
     } catch (error) {
-      // Only log errors for non-binary messages
-      if (typeof message === 'string') {
-        console.error('❌ Error parsing control message:', error.message);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Failed to process control message'
-        }));
-      }
-      // Silently ignore binary data parsing errors
+      console.error('❌ Error handling message:', error);
+      console.error('Message type:', typeof message);
+      console.error('Message length:', message.length);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Failed to process message'
+      }));
     }
   }
 

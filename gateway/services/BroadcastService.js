@@ -24,14 +24,12 @@ class BroadcastService {
 
     console.log(`🎙️ Starting stream for ${user.email}`);
 
-    // Ultra low-latency audio config - use browser's native sample rate
+    // Ultra low-latency audio config optimized for live broadcasting
     const audioConfig = {
-      sampleRate: streamConfig.sampleRate || 44100, // Default to common browser rate
+      sampleRate: streamConfig.sampleRate || 22050,
       channels: streamConfig.channels || 1,
       bitrate: streamConfig.bitrate || 96
     };
-    
-    console.log(`🎵 Gateway received audio config: ${audioConfig.sampleRate}Hz, ${audioConfig.channels}ch, ${audioConfig.bitrate}kbps`);
 
     // Update database - set live state
     await this.databaseService.updateLiveState({
@@ -59,7 +57,7 @@ class BroadcastService {
         type: 'stream_started',
         message: 'Reconnected to existing stream',
         config: {
-          sampleRate: streamConfig.sampleRate || 44100, // Default to common browser rate
+          sampleRate: streamConfig.sampleRate || 22050,
           channels: streamConfig.channels || 1,
           bitrate: streamConfig.bitrate || 96
         }
@@ -72,12 +70,10 @@ class BroadcastService {
       console.log(`🎙️ Restarting FFmpeg for ${user.email} (session recovery)`);
       
       const audioConfig = {
-        sampleRate: streamConfig.sampleRate || 44100, // Default to common browser rate
+        sampleRate: streamConfig.sampleRate || 22050,
         channels: streamConfig.channels || 1,
         bitrate: streamConfig.bitrate || 96
       };
-      
-      console.log(`🔄 Gateway reconnecting with audio config: ${audioConfig.sampleRate}Hz`);
 
       // Don't update startedAt - keep original time
       await this.databaseService.updateLiveState({
@@ -105,7 +101,7 @@ class BroadcastService {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
     
-    // Ultra low-latency FFmpeg command optimized for live broadcasting
+    // Low-latency FFmpeg command for live broadcasting
     const ffmpegArgs = [
       // Input configuration
       '-f', 's16le',
@@ -113,23 +109,16 @@ class BroadcastService {
       '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0',
       
-      // Real-time audio encoding optimized for live streaming
+      // Audio encoding
       '-acodec', 'libmp3lame',
       '-ab', '96k',
       '-ac', '1',
       '-ar', audioConfig.sampleRate.toString(),
-      '-q:a', '2', // Quality setting for MP3 (2 = high quality, fast encoding)
       
-      // Real-time processing flags
-      '-fflags', 'nobuffer+flush_packets',
-      '-flags', 'low_delay',
-      '-strict', 'experimental',
+      // Low latency flags
       '-flush_packets', '1',
-      
-      // Minimize buffering
+      '-fflags', '+genpts+flush_packets',
       '-max_delay', '0',
-      '-muxdelay', '0',
-      '-muxpreload', '0',
       
       // Icecast metadata
       '-content_type', 'audio/mpeg',
@@ -288,7 +277,7 @@ class BroadcastService {
     
     setTimeout(() => {
       if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-        this.startFFmpeg(ws, user, { sampleRate: 44100, channels: 1, bitrate: 96 }); // Use common default
+        this.startFFmpeg(ws, user, { sampleRate: 22050, channels: 1, bitrate: 96 });
       }
     }, 1000);
   }
