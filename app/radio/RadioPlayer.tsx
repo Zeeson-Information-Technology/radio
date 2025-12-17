@@ -7,7 +7,7 @@ import Link from "next/link";
 interface LiveData {
   ok: boolean;
   isLive: boolean;
-  isMuted?: boolean;
+  isMuted: boolean;
   title: string | null;
   lecturer: string | null;
   startedAt: string | null;

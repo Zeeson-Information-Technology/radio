@@ -103,8 +103,7 @@ class BroadcastService {
     
     // Low-latency FFmpeg command for live broadcasting
     const ffmpegArgs = [
-      // Input configuration with real-time reading
-      '-re', // Read input at native frame rate (MUST be before -i)
+      // Input configuration
       '-f', 's16le',
       '-ar', audioConfig.sampleRate.toString(),
       '-ac', audioConfig.channels.toString(),
