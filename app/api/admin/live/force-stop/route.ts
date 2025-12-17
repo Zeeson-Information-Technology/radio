@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
+import { connectDB } from '@/lib/db';
 import LiveState from '@/lib/models/LiveState';
 
 export async function POST(request: NextRequest) {
@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     console.log('🛑 Force stop broadcast requested');
 
     // Connect to database
-    await connectToDatabase();
+    await connectDB();
 
     // Force reset the live state
     await LiveState.findOneAndUpdate(
