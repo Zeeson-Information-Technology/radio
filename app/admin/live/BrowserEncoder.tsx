@@ -47,11 +47,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const streamStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Stream configuration - use gateway's expected sample rate
+  // Stream configuration - standard audio parameters for quality
   const streamConfig: StreamConfig = {
-    sampleRate: 22050, // Match gateway expectation
-    channels: 1, // Mono for Islamic radio
-    bitrate: 96 // Match gateway bitrate
+    sampleRate: 44100, // Standard CD quality sample rate
+    channels: 1,       // Mono for voice/radio
+    bitrate: 128       // Standard streaming bitrate
   };
 
   // Check browser support and existing session on mount
