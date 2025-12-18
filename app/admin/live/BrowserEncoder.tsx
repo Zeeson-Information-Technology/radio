@@ -29,8 +29,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isFirefox, setIsFirefox] = useState(false);
   
-  // Audio processing throttling
-  const lastAudioSendRef = useRef<number>(0);
+
   
   // Notification flags to prevent duplicate calls
   const hasNotifiedStartRef = useRef<boolean>(false);
@@ -448,34 +447,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       processor.onaudioprocess = (event) => {
         const inputBuffer = event.inputBuffer;
         
-        // Send audio data to gateway (with throttling to prevent overwhelming)
+        // Send audio data to gateway (continuous streaming - no throttling)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
-            const now = Date.now();
-            // Throttle to prevent overwhelming the network (10ms intervals)
-            if (now - lastAudioSendRef.current < 10) {
-              return;
-            }
-            lastAudioSendRef.current = now;
             
             const audioData = inputBuffer.getChannelData(0);
             
-            // Skip empty or invalid audio frames
+            // Skip only if completely empty buffer (but allow silence/quiet audio)
             if (!audioData || audioData.length === 0) {
-              return;
-            }
-            
-            // Check for valid audio data before processing
-            let hasValidAudio = false;
-            for (let i = 0; i < audioData.length; i++) {
-              if (isFinite(audioData[i]) && Math.abs(audioData[i]) > 0.001) {
-                hasValidAudio = true;
-                break;
-              }
-            }
-            
-            // Only process if we have actual audio content
-            if (!hasValidAudio) {
               return;
             }
             
