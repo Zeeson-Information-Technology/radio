@@ -49,6 +49,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
   const [liveData, setLiveData] = useState<LiveData>(initialData);
   const [volume, setVolume] = useState(80);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [streamHealth, setStreamHealth] = useState<'unknown' | 'healthy' | 'unhealthy'>('unknown');
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Smart automatic updates - checks every 10 seconds when page is visible
@@ -67,6 +68,27 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
       console.error('Error checking live state:', error);
     } finally {
       if (showLoading) setIsRefreshing(false);
+    }
+  };
+
+  // Check stream health when broadcast is live
+  const checkStreamHealth = async () => {
+    if (!liveData.isLive) {
+      setStreamHealth('unknown');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/stream/test');
+      if (response.ok) {
+        const data = await response.json();
+        setStreamHealth(data.available ? 'healthy' : 'unhealthy');
+      } else {
+        setStreamHealth('unhealthy');
+      }
+    } catch (error) {
+      console.error('Stream health check failed:', error);
+      setStreamHealth('unhealthy');
     }
   };
 
@@ -158,6 +180,11 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
     };
   }, []);
 
+  // Check stream health when broadcast status changes
+  useEffect(() => {
+    checkStreamHealth();
+  }, [liveData.isLive]);
+
   // Update audio volume
   useEffect(() => {
     if (audioRef.current) {
@@ -167,16 +194,51 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
 
 
 
-  const handlePlayPause = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play().catch((error) => {
-          console.error('Error playing audio:', error);
-        });
+  const handlePlayPause = async () => {
+    if (!audioRef.current) return;
+    
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      // Only allow play if there's an active broadcast
+      if (!liveData.isLive) {
+        console.warn('❌ Cannot play - no active broadcast');
+        alert('No live broadcast is currently active. Please wait for a presenter to start broadcasting.');
+        return;
       }
-      setIsPlaying(!isPlaying);
+      
+      try {
+        console.log('🎵 Attempting to play stream:', liveData.streamUrl);
+        console.log('📡 Broadcast status:', { isLive: liveData.isLive, lecturer: liveData.lecturer });
+        
+        // Test if the stream URL is accessible
+        try {
+          const testResponse = await fetch(liveData.streamUrl, { 
+            method: 'HEAD',
+            mode: 'no-cors'
+          });
+          console.log('✅ Stream URL test passed');
+        } catch (testError) {
+          console.warn('⚠️ Stream URL test failed:', testError);
+        }
+        
+        await audioRef.current.play();
+        setIsPlaying(true);
+        console.log('✅ Audio playback started successfully');
+      } catch (error) {
+        console.error('❌ Error playing audio:', error);
+        setIsPlaying(false);
+        
+        // Provide specific error messages
+        if (error instanceof DOMException) {
+          if (error.name === 'NotSupportedError' || error.message.includes('not suitable')) {
+            alert('Stream not available. The broadcast may have just ended or there may be a connection issue. Please try refreshing the page.');
+          } else if (error.name === 'NotAllowedError') {
+            alert('Playback blocked by browser. Please click the play button again to allow audio.');
+          }
+        }
+      }
     }
   };
 
@@ -419,11 +481,31 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                       src={liveData.streamUrl}
                       onPlay={() => setIsPlaying(true)}
                       onPause={() => setIsPlaying(false)}
-                      onError={() => {
+                      onError={(e) => {
                         setIsPlaying(false);
-                        console.error("Audio stream error");
+                        console.error("🔴 Audio stream error:", e);
+                        
+                        // Detailed error logging for diagnostics
+                        if (audioRef.current?.error) {
+                          const error = audioRef.current.error;
+                          console.error("🔍 Audio error details:", {
+                            code: error.code,
+                            message: error.message,
+                            streamUrl: liveData.streamUrl,
+                            errorType: {
+                              1: 'MEDIA_ERR_ABORTED',
+                              2: 'MEDIA_ERR_NETWORK', 
+                              3: 'MEDIA_ERR_DECODE',
+                              4: 'MEDIA_ERR_SRC_NOT_SUPPORTED'
+                            }[error.code] || 'UNKNOWN'
+                          });
+                        }
                       }}
-                      preload="metadata"
+                      onLoadStart={() => console.log("🎵 Audio loading started")}
+                      onCanPlay={() => console.log("✅ Audio can play")}
+                      onWaiting={() => console.log("⏳ Audio waiting for data")}
+                      onStalled={() => console.log("⚠️ Audio stalled")}
+                      preload="none"
                       crossOrigin="anonymous"
                       playsInline={true}
                     />
@@ -434,6 +516,22 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                     <p className="text-sm text-slate-500 mt-2">
                       High Quality Audio Stream
                     </p>
+                    
+                    {/* Stream Health Indicator */}
+                    {liveData.isLive && (
+                      <div className="mt-3 flex items-center justify-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          streamHealth === 'healthy' ? 'bg-green-500' :
+                          streamHealth === 'unhealthy' ? 'bg-red-500' : 'bg-yellow-500'
+                        }`}></div>
+                        <span className="text-xs text-slate-400">
+                          Stream: {
+                            streamHealth === 'healthy' ? 'Connected' :
+                            streamHealth === 'unhealthy' ? 'Connection Issue' : 'Checking...'
+                          }
+                        </span>
+                      </div>
+                    )}
 
                     {/* Waveform Animation */}
                     {isPlaying && (

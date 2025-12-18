@@ -101,7 +101,7 @@ class BroadcastService {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
     
-    // Standard FFmpeg configuration for reliable audio streaming
+    // Stable continuous streaming FFmpeg configuration
     const ffmpegArgs = [
       // Input: Raw 16-bit signed little-endian PCM
       '-f', 's16le',
@@ -109,16 +109,24 @@ class BroadcastService {
       '-ac', audioConfig.channels.toString(),    // Input channels
       '-i', 'pipe:0',
       
-      // Audio encoding with standard parameters
-      '-acodec', 'libmp3lame',
-      '-b:a', `${audioConfig.bitrate}k`,         // Audio bitrate (128k standard)
-      '-ar', '44100',                            // Output sample rate (standard CD quality)
-      '-ac', '1',                                // Output channels (mono for radio)
+      // Real-time processing (critical for live streaming)
+      '-re',
       
-      // Standard MP3 streaming format
+      // Audio encoding with streaming-optimized parameters
+      '-acodec', 'libmp3lame',
+      '-b:a', `${audioConfig.bitrate}k`,         // Audio bitrate
+      '-ar', '44100',                            // Output sample rate (standard)
+      '-ac', '1',                                // Output channels (mono)
+      
+      // Streaming stability flags
+      '-flush_packets', '1',                     // Flush packets immediately
+      '-fflags', '+genpts',                      // Generate presentation timestamps
+      '-avoid_negative_ts', 'make_zero',         // Handle timestamp issues
+      
+      // MP3 streaming format
       '-f', 'mp3',
       
-      // Icecast metadata
+      // Icecast connection parameters
       '-content_type', 'audio/mpeg',
       '-ice_name', 'Al-Manhaj Radio',
       '-ice_description', `Live from ${user.name || user.email}`,
@@ -186,6 +194,20 @@ class BroadcastService {
           type: 'icecast_connected',
           message: 'Successfully connected to Icecast server'
         }));
+      }
+      
+      // Detect streaming issues that cause "stops and repeats"
+      if (output.includes('Broken pipe') || output.includes('Connection reset')) {
+        console.error('🚨 FFmpeg connection issue detected:', output);
+        ws.send(JSON.stringify({
+          type: 'stream_warning',
+          message: 'Connection instability detected - attempting to stabilize'
+        }));
+      }
+      
+      // Detect buffer underruns
+      if (output.includes('buffer underrun') || output.includes('dropping frame')) {
+        console.warn('⚠️ Audio buffer issue:', output);
       }
     });
   }
@@ -285,12 +307,19 @@ class BroadcastService {
     }
 
     try {
-      // Send audio data to ffmpeg
-      this.ffmpegProcess.stdin.write(audioBuffer);
+      // Check if FFmpeg stdin is writable before writing
+      if (this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
+        this.ffmpegProcess.stdin.write(audioBuffer);
+      } else {
+        console.warn('⚠️ FFmpeg stdin not writable, skipping audio data');
+      }
     } catch (error) {
       console.error('❌ Error writing to ffmpeg:', error);
-      // Note: restartFFmpeg needs ws and user, which aren't available here
-      // This should be handled by the calling code
+      
+      // If write fails consistently, the stream may be broken
+      if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
+        console.error('🚨 FFmpeg pipe broken - stream may need restart');
+      }
     }
   }
 
