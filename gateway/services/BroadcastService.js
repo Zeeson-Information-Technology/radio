@@ -101,32 +101,24 @@ class BroadcastService {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
     
-    // Stable continuous streaming FFmpeg configuration
+    // Simple, reliable MP3 streaming configuration
     const ffmpegArgs = [
-      // Input: Raw 16-bit signed little-endian PCM
+      // Input: Raw PCM from browser
       '-f', 's16le',
-      '-ar', audioConfig.sampleRate.toString(),  // Use browser's actual sample rate
-      '-ac', audioConfig.channels.toString(),    // Input channels
+      '-ar', audioConfig.sampleRate.toString(),
+      '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0',
       
-      // Real-time processing (critical for live streaming)
-      '-re',
-      
-      // Audio encoding with streaming-optimized parameters
+      // MP3 encoding
       '-acodec', 'libmp3lame',
-      '-b:a', `${audioConfig.bitrate}k`,         // Audio bitrate
-      '-ar', '44100',                            // Output sample rate (standard)
-      '-ac', '1',                                // Output channels (mono)
+      '-ab', '128k',
+      '-ar', '44100',
+      '-ac', '1',
       
-      // Streaming stability flags
-      '-flush_packets', '1',                     // Flush packets immediately
-      '-fflags', '+genpts',                      // Generate presentation timestamps
-      '-avoid_negative_ts', 'make_zero',         // Handle timestamp issues
-      
-      // MP3 streaming format
+      // Output format
       '-f', 'mp3',
       
-      // Icecast connection parameters
+      // Icecast metadata
       '-content_type', 'audio/mpeg',
       '-ice_name', 'Al-Manhaj Radio',
       '-ice_description', `Live from ${user.name || user.email}`,
@@ -164,18 +156,35 @@ class BroadcastService {
       console.log(`🔚 FFmpeg exited with code ${code}, signal ${signal}`);
       this.isStreaming = false;
       
-      if (code !== 0 && this.currentBroadcast) {
+      // Log specific error codes for debugging
+      if (code === 234) {
+        console.error('❌ FFmpeg error 234: Cannot connect to Icecast server');
         ws.send(JSON.stringify({
           type: 'stream_error',
-          message: 'Stream connection lost. Attempting to reconnect...'
+          message: 'Cannot connect to streaming server. Please check Icecast configuration.'
+        }));
+      } else if (code === 1) {
+        console.error('❌ FFmpeg error 1: General encoding error');
+        ws.send(JSON.stringify({
+          type: 'stream_error',
+          message: 'Audio encoding error. Please try again.'
+        }));
+      } else if (code !== 0 && this.currentBroadcast) {
+        console.error(`❌ FFmpeg unexpected exit with code ${code}`);
+        ws.send(JSON.stringify({
+          type: 'stream_error',
+          message: `Stream error (code ${code}). Attempting to reconnect...`
         }));
         
-        // Auto-restart if unexpected exit
-        setTimeout(() => {
-          if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-            this.startFFmpeg(ws, user, audioConfig);
-          }
-        }, 2000);
+        // Auto-restart if unexpected exit (but not for connection errors)
+        if (code !== 234) {
+          setTimeout(() => {
+            if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
+              console.log('🔄 Attempting FFmpeg restart...');
+              this.startFFmpeg(ws, user, audioConfig);
+            }
+          }, 3000);
+        }
       }
     });
 
