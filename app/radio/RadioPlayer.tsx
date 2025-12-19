@@ -478,7 +478,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
 
                     <audio
                       ref={audioRef}
-                      src={liveData.streamUrl}
+                      src={liveData.isLive ? liveData.streamUrl : undefined}
                       onPlay={() => setIsPlaying(true)}
                       onPause={() => setIsPlaying(false)}
                       onError={(e) => {
