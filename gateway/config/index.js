@@ -5,14 +5,14 @@
 module.exports = {
   // Server Configuration
   PORT: process.env.GATEWAY_PORT || 8080,
-  JWT_SECRET: process.env.JWT_SECRET || 'your-jwt-secret',
+  JWT_SECRET: process.env.JWT_SECRET || 'hujfidreukj78jrekjhrehre8hfd',
   NEXTJS_URL: process.env.NEXTJS_URL || 'http://localhost:3000',
   
   // Icecast Configuration
   ICECAST_HOST: process.env.ICECAST_HOST || 'localhost',
   ICECAST_PORT: process.env.ICECAST_PORT || 8000,
   ICECAST_PASSWORD: process.env.ICECAST_PASSWORD || 'hackme',
-  ICECAST_MOUNT: process.env.ICECAST_MOUNT || '/live.mp3',
+  ICECAST_MOUNT: process.env.ICECAST_MOUNT || '/stream',
   
   // Database Configuration
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://localhost:27017/online-radio',
