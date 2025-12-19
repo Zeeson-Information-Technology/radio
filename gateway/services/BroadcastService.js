@@ -24,11 +24,11 @@ class BroadcastService {
 
     console.log(`🎙️ Starting stream for ${user.email}`);
 
-    // Standard audio config for reliable streaming (no distortion)
+    // Production audio config for Icecast compatibility
     const audioConfig = {
-      sampleRate: streamConfig.sampleRate || 44100, // Standard CD quality sample rate
-      channels: streamConfig.channels || 1,         // Mono for voice/radio
-      bitrate: streamConfig.bitrate || 128          // Standard streaming bitrate
+      sampleRate: 44100,  // Fixed sample rate for consistency
+      channels: 1,        // Mono for radio broadcasting
+      bitrate: 128        // Standard MP3 bitrate
     };
 
     // Update database - set live state
@@ -101,7 +101,7 @@ class BroadcastService {
   startFFmpeg(ws, user, audioConfig) {
     const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
     
-    // Simple, reliable MP3 streaming configuration
+    // Production-ready Icecast streaming configuration
     const ffmpegArgs = [
       // Input: Raw PCM from browser
       '-f', 's16le',
@@ -109,17 +109,14 @@ class BroadcastService {
       '-ac', audioConfig.channels.toString(),
       '-i', 'pipe:0',
       
-      // MP3 encoding
+      // Audio encoding for Icecast compatibility
       '-acodec', 'libmp3lame',
-      '-ab', '128k',
+      '-b:a', '128k',
       '-ar', '44100',
       '-ac', '1',
-      
-      // Output format
       '-f', 'mp3',
       
-      // Icecast metadata
-      '-content_type', 'audio/mpeg',
+      // Icecast streaming parameters
       '-ice_name', 'Al-Manhaj Radio',
       '-ice_description', `Live from ${user.name || user.email}`,
       '-ice_genre', 'Islamic',

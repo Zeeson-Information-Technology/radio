@@ -12,7 +12,7 @@ module.exports = {
   ICECAST_HOST: process.env.ICECAST_HOST || 'localhost',
   ICECAST_PORT: process.env.ICECAST_PORT || 8000,
   ICECAST_PASSWORD: process.env.ICECAST_PASSWORD || 'hackme',
-  ICECAST_MOUNT: process.env.ICECAST_MOUNT || '/stream',
+  ICECAST_MOUNT: process.env.ICECAST_MOUNT || '/live.mp3',
   
   // Database Configuration
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://localhost:27017/online-radio',
