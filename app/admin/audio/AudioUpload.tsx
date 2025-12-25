@@ -100,7 +100,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   // Audio format validation
   const supportedMimeTypes = getSupportedMimeTypes();
   const supportedExtensions = Object.keys(SUPPORTED_AUDIO_FORMATS).map(ext => `.${ext}`);
-  const maxFileSize = 20 * 1024 * 1024; // 20MB - balanced for usability and cost
+  const maxFileSize = 30 * 1024 * 1024; // 30MB - balanced for usability and cost
 
   const validateFile = (file: File): string | null => {
     // Get file extension first
