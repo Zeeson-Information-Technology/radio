@@ -53,9 +53,9 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
       return;
     }
 
-    // Validate file size (50MB limit)
-    if (file.size > 50 * 1024 * 1024) {
-      setError('File size must be less than 50MB');
+    // Validate file size (30MB limit)
+    if (file.size > 30 * 1024 * 1024) {
+      setError('File size must be less than 30MB');
       return;
     }
 
@@ -280,7 +280,7 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
                       </div>
                       <div className="text-left">
                         <p className="font-medium text-gray-700">Drop your audio file here or click to browse</p>
-                        <p className="text-sm text-gray-500">MP3, WAV, M4A, AMR, OGG, AAC, FLAC • Max 50MB</p>
+                        <p className="text-sm text-gray-500">MP3, WAV, M4A, AMR, OGG, AAC, FLAC • Max 30MB</p>
                       </div>
                       <div className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium text-sm">
                         Choose File

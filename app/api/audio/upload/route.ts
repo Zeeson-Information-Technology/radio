@@ -117,14 +117,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (20MB max for better usability)
-    const maxSize = 20 * 1024 * 1024;
+    // Validate file size (30MB max for better usability)
+    const maxSize = 30 * 1024 * 1024;
     if (file.size > maxSize) {
       const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      const maxSizeMB = maxSize / (1024 * 1024);
       return NextResponse.json(
         { 
           success: false, 
-          message: `File too large (${sizeMB}MB). Maximum size is 20MB. Please compress your audio file or use MP3/M4A format for better compression.` 
+          message: `File too large (${sizeMB}MB). Maximum size is ${maxSizeMB}MB. Please compress your audio file or use MP3/M4A format for better compression.` 
         },
         { status: 400 }
       );

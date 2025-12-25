@@ -233,7 +233,7 @@ export function estimateFileSize(durationMinutes: number, format: string, bitrat
   withinLimit: boolean;
   recommendation?: string;
 } {
-  const maxSizeBytes = 20 * 1024 * 1024; // 20MB limit
+  const maxSizeBytes = 30 * 1024 * 1024; // 30MB limit
   
   // Calculate size: (bitrate in kbps * duration in seconds) / 8 bits per byte
   const sizeBytes = (bitrate * durationMinutes * 60) / 8 * 1024;

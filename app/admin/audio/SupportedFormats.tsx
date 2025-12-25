@@ -14,7 +14,7 @@ export default function SupportedFormats() {
         
         <div>
           <span className="font-medium text-slate-700">Max Size:</span>
-          <span className="ml-2 text-slate-600">20MB</span>
+          <span className="ml-2 text-slate-600">30MB</span>
         </div>
         
         <div>
