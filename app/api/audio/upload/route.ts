@@ -14,13 +14,13 @@ import jwt from "jsonwebtoken";
 /**
  * Get default visibility based on user role (Requirements 8.1, 8.2)
  */
-function getDefaultVisibility(role: string): string {
+function getDefaultVisibility(role: string, isBroadcastUpload: boolean = false): string {
   switch (role) {
     case 'super_admin':
     case 'admin':
       return 'public'; // Admins default to public for station-wide access
     case 'presenter':
-      return 'private'; // Presenters default to private for personal use
+      return isBroadcastUpload ? 'shared' : 'private'; // Presenters default to shared for broadcast uploads, private otherwise
     default:
       return 'private';
   }
@@ -37,19 +37,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Only super_admin and admin can upload audio files
-    if (admin.role !== "super_admin" && admin.role !== "admin") {
-      return NextResponse.json(
-        { success: false, message: "Insufficient permissions. Only administrators can upload audio files." },
-        { status: 403 }
-      );
-    }
-
     // Connect to database
     await connectDB();
 
     // Parse form data
     const formData = await request.formData();
+    
+    // Check if this is a broadcast-ready upload by a presenter
+    const isBroadcastUpload = formData.get("broadcastReady") === "true";
+    
+    // Only super_admin and admin can upload regular audio files
+    // Presenters can only upload broadcast-ready audio for live injection
+    if (admin.role !== "super_admin" && admin.role !== "admin" && admin.role !== "presenter") {
+      return NextResponse.json(
+        { success: false, message: "Insufficient permissions. Only administrators and presenters can upload audio files." },
+        { status: 403 }
+      );
+    }
+    
+    // Presenters can only upload broadcast-ready audio
+    if (admin.role === "presenter" && !isBroadcastUpload) {
+      return NextResponse.json(
+        { success: false, message: "Presenters can only upload audio marked as broadcast-ready for live injection." },
+        { status: 403 }
+      );
+    }
     const file = formData.get("file") as File;
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
@@ -60,7 +72,7 @@ export async function POST(request: NextRequest) {
     const year = formData.get("year") as string;
     
     // New access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
-    const visibility = formData.get("visibility") as string || getDefaultVisibility(admin.role);
+    const visibility = formData.get("visibility") as string || getDefaultVisibility(admin.role, isBroadcastUpload);
     const sharedWith = formData.get("sharedWith") as string; // JSON array of presenter IDs
     const broadcastReady = formData.get("broadcastReady") === "true";
 
@@ -150,13 +162,20 @@ export async function POST(request: NextRequest) {
       qa: "Islamic Lectures" // Q&A sessions are categorized as lectures
     };
     const defaultName = defaultCategoryNames[type as keyof typeof defaultCategoryNames] || "Islamic Lectures";
-    const category = await Category.findOne({ name: defaultName });
-
+    
+    let category = await Category.findOne({ name: defaultName });
+    
     if (!category) {
-      return NextResponse.json(
-        { success: false, message: "Default category not found" },
-        { status: 400 }
-      );
+      // Create default categories if they don't exist
+      await Category.createDefaults();
+      category = await Category.findOne({ name: defaultName });
+      
+      if (!category) {
+        return NextResponse.json(
+          { success: false, message: `Category "${defaultName}" could not be created` },
+          { status: 500 }
+        );
+      }
     }
 
     // Process tags

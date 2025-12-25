@@ -7,7 +7,7 @@ import { useToast } from '@/lib/contexts/ToastContext';
 import { useConfirm } from '@/lib/hooks/useConfirm';
 import { useModal } from '@/lib/contexts/ModalContext';
 import EditAudioModal from '@/components/modals/EditAudioModal';
-import UniversalAudioPlayer from '@/app/components/UniversalAudioPlayer';
+import LiveAudioPreview from './LiveAudioPreview';
 
 interface AudioFile {
   id: string;
@@ -62,8 +62,10 @@ export default function BroadcastControlPanel({
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [muteTimeoutReminder, setMuteTimeoutReminder] = useState<string | null>(null);
   const [muteStartTime, setMuteStartTime] = useState<number | null>(null);
-  const [currentlyPreviewing, setCurrentlyPreviewing] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewState, setPreviewState] = useState<{
+    fileId: string | null;
+    data: any | null;
+  }>({ fileId: null, data: null });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
   // Live audio modals
@@ -73,14 +75,20 @@ export default function BroadcastControlPanel({
   const { openModal } = useModal();
 
   // Stop any currently playing preview audio
-  const stopCurrentPreview = useCallback(() => {
-    // Only show toast if there's actually audio being previewed
-    if (currentlyPreviewing) {
-      showInfo('Preview Stopped', 'Audio preview stopped');
-    }
-    setCurrentlyPreviewing(null);
-    setPreviewData(null);
-  }, [showInfo, currentlyPreviewing]);
+  const stopCurrentPreview = useCallback((showToast: boolean = true) => {
+    setPreviewState(prev => {
+      // Only show toast if there's actually audio being previewed AND showToast is true
+      if (prev.fileId && showToast) {
+        showInfo('Preview Stopped', 'Audio preview stopped');
+      }
+      return { fileId: null, data: null };
+    });
+  }, [showInfo]);
+
+  // Wrapper for button clicks
+  const handleStopPreview = useCallback(() => {
+    stopCurrentPreview(true);
+  }, [stopCurrentPreview]);
 
   // Load audio files from library (Requirements 7.5 - always available for browsing)
   const loadAudioFiles = useCallback(async () => {
@@ -106,7 +114,7 @@ export default function BroadcastControlPanel({
   // Cleanup audio on component unmount
   useEffect(() => {
     return () => {
-      stopCurrentPreview();
+      stopCurrentPreview(false); // Don't show toast on unmount
     };
   }, [stopCurrentPreview]);
 
@@ -157,11 +165,8 @@ export default function BroadcastControlPanel({
   // Enhanced local preview functionality with full audio player
   const handleLocalPreview = useCallback(async (file: AudioFile) => {
     try {
-      // Stop any currently playing preview
-      stopCurrentPreview();
-      
-      setCurrentlyPreviewing(file.id);
-      showInfo('Loading Audio', `Loading "${file.title}"...`);
+      // Clear any existing preview data first
+      setPreviewState({ fileId: null, data: null });
       
       // Get audio URL from API
       const response = await fetch(`/api/audio/play/${file.id}`);
@@ -175,18 +180,15 @@ export default function BroadcastControlPanel({
         } else {
           showError('Load Failed', result.message || 'Failed to load audio');
         }
-        setCurrentlyPreviewing(null);
         return;
       }
       
       if (!result.success || !result.data) {
         showError('Invalid Response', 'Invalid response from server');
-        setCurrentlyPreviewing(null);
         return;
       }
       
-      // Set preview data for UniversalAudioPlayer
-      setPreviewData({
+      const newPreviewData = {
         id: file.id,
         title: file.title,
         lecturerName: file.lecturerName || file.lecturer,
@@ -196,15 +198,16 @@ export default function BroadcastControlPanel({
         conversionStatus: result.data.conversionStatus || 'ready',
         audioUrl: result.data.audioUrl,
         playCount: 0
-      });
+      };
       
-      showSuccess('Preview Ready', `"${file.title}" loaded for preview`);
+      // Set both in a single state update to avoid race conditions
+      setPreviewState({ fileId: file.id, data: newPreviewData });
       
     } catch (error) {
       showError('Preview Failed', error instanceof Error ? error.message : 'Failed to load audio');
-      setCurrentlyPreviewing(null);
+      setPreviewState({ fileId: null, data: null });
     }
-  }, [showError, showInfo, showSuccess, stopCurrentPreview]);
+  }, [showError]);
   // Performance optimization: Memoized format duration function
   const formatDuration = useCallback((seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -542,37 +545,33 @@ export default function BroadcastControlPanel({
           )}
 
           {/* Audio Preview Player */}
-          {currentlyPreviewing && previewData && (
+          {previewState.fileId && previewState.data && (
             <div className="mb-3 lg:mb-4 p-3 lg:p-4 bg-gradient-to-r from-purple-50 to-purple-100 border border-purple-200 rounded-lg">
-              <div className="flex items-center justify-between mb-2 lg:mb-3">
+              <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold text-purple-800 text-sm lg:text-base flex items-center gap-2">
                   <span className="text-lg">🎧</span>
                   Audio Preview
                 </h4>
                 <button
-                  onClick={stopCurrentPreview}
+                  onClick={handleStopPreview}
                   className="px-2 py-1 lg:px-3 lg:py-2 text-xs lg:text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   ✕ Close
                 </button>
               </div>
-              <UniversalAudioPlayer
-                audioUrl={previewData.audioUrl}
-                title={previewData.title}
-                format={previewData.format}
-                conversionStatus={previewData.conversionStatus}
-                originalFormat={previewData.originalFormat}
+              
+              <LiveAudioPreview
+                audioUrl={previewState.data.audioUrl}
+                title={previewState.data.title}
+                format={previewState.data.format}
                 onEnded={() => {
                   showInfo('Preview Complete', 'Audio preview finished');
-                  setCurrentlyPreviewing(null);
-                  setPreviewData(null);
+                  setPreviewState({ fileId: null, data: null });
                 }}
                 onError={(error) => {
                   showError('Preview Error', error);
-                  setCurrentlyPreviewing(null);
-                  setPreviewData(null);
+                  setPreviewState({ fileId: null, data: null });
                 }}
-                className="bg-white"
               />
             </div>
           )}
@@ -677,9 +676,9 @@ export default function BroadcastControlPanel({
                       </button>
                     ) : (
                       <div className="flex items-center gap-2">
-                        {currentlyPreviewing === file.id ? (
+                        {previewState.fileId === file.id ? (
                           <button
-                            onClick={stopCurrentPreview}
+                            onClick={handleStopPreview}
                             className="px-3 py-2 lg:px-4 lg:py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs lg:text-sm"
                             title="Close preview player"
                           >
