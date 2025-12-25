@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
 
     // Notify gateway to mute broadcast
     try {
-      const gatewayResponse = await fetch('http://localhost:8080/api/broadcast/mute', {
+      const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
+      const gatewayResponse = await fetch(`${gatewayUrl}/api/broadcast/mute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
