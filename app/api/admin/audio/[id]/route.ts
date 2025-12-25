@@ -11,7 +11,7 @@ import { canDeleteAudio } from "@/lib/utils/audioAccessUtils";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const admin = await getCurrentAdmin();
@@ -24,7 +24,9 @@ export async function GET(
 
     await connectDB();
 
-    const recording = await AudioRecording.findById(params.id)
+    const { id } = await params;
+
+    const recording = await AudioRecording.findById(id)
       .populate('lecturer', 'name')
       .populate('category', 'name')
       .populate('createdBy', 'name email');
@@ -38,22 +40,22 @@ export async function GET(
 
     // Check access permissions
     const userContext = {
-      _id: admin._id.toString(),
+      id: admin._id.toString(), // Note: using 'id' not '_id'
       role: admin.role,
       email: admin.email
     };
 
     const audioFile = {
-      _id: recording._id.toString(),
+      id: recording._id.toString(), // Note: using 'id' not '_id'
       createdBy: recording.createdBy._id.toString(),
       visibility: recording.visibility,
-      sharedWith: recording.sharedWith || []
+      sharedWith: recording.sharedWith?.map(id => id.toString()) || [] // Convert ObjectId[] to string[]
     };
 
     // For GET requests, we can be more permissive - allow viewing if user has any access
     const hasAccess = recording.visibility === 'public' || 
                      recording.createdBy._id.toString() === admin._id.toString() ||
-                     (recording.visibility === 'shared' && recording.sharedWith?.includes(admin._id.toString())) ||
+                     (recording.visibility === 'shared' && recording.sharedWith?.some(id => id.toString() === admin._id.toString())) ||
                      admin.role === 'super_admin' || admin.role === 'admin';
 
     if (!hasAccess) {
@@ -105,7 +107,7 @@ export async function GET(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const admin = await getCurrentAdmin();
@@ -118,7 +120,9 @@ export async function DELETE(
 
     await connectDB();
 
-    const recording = await AudioRecording.findById(params.id);
+    const { id } = await params;
+
+    const recording = await AudioRecording.findById(id);
     if (!recording) {
       return NextResponse.json(
         { success: false, message: "Audio recording not found" },
@@ -128,16 +132,16 @@ export async function DELETE(
 
     // Check delete permissions
     const userContext = {
-      _id: admin._id.toString(),
+      id: admin._id.toString(), // Note: using 'id' not '_id'
       role: admin.role,
       email: admin.email
     };
 
     const audioFile = {
-      _id: recording._id.toString(),
+      id: recording._id.toString(), // Note: using 'id' not '_id'
       createdBy: recording.createdBy.toString(),
       visibility: recording.visibility,
-      sharedWith: recording.sharedWith || []
+      sharedWith: recording.sharedWith?.map(id => id.toString()) || [] // Convert ObjectId[] to string[]
     };
 
     if (!canDeleteAudio(audioFile, userContext)) {
@@ -158,7 +162,7 @@ export async function DELETE(
     }
 
     // Delete the recording from database
-    await AudioRecording.findByIdAndDelete(params.id);
+    await AudioRecording.findByIdAndDelete(id);
 
     return NextResponse.json({
       success: true,
@@ -180,7 +184,7 @@ export async function DELETE(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const admin = await getCurrentAdmin();
@@ -193,7 +197,9 @@ export async function PUT(
 
     await connectDB();
 
-    const recording = await AudioRecording.findById(params.id);
+    const { id } = await params;
+
+    const recording = await AudioRecording.findById(id);
     if (!recording) {
       return NextResponse.json(
         { success: false, message: "Audio recording not found" },
@@ -203,16 +209,16 @@ export async function PUT(
 
     // Check modify permissions
     const userContext = {
-      _id: admin._id.toString(),
+      id: admin._id.toString(), // Note: using 'id' not '_id'
       role: admin.role,
       email: admin.email
     };
 
     const audioFile = {
-      _id: recording._id.toString(),
+      id: recording._id.toString(), // Note: using 'id' not '_id'
       createdBy: recording.createdBy.toString(),
       visibility: recording.visibility,
-      sharedWith: recording.sharedWith || []
+      sharedWith: recording.sharedWith?.map(id => id.toString()) || [] // Convert ObjectId[] to string[]
     };
 
     if (!canDeleteAudio(audioFile, userContext)) { // Using same permissions as delete for modify
@@ -238,7 +244,7 @@ export async function PUT(
     if (broadcastReady !== undefined) updateData.broadcastReady = broadcastReady;
 
     const updatedRecording = await AudioRecording.findByIdAndUpdate(
-      params.id,
+      id,
       updateData,
       { new: true }
     ).populate('lecturer', 'name').populate('category', 'name');
