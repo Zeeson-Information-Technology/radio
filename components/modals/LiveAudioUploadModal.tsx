@@ -21,8 +21,7 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
   // Form state
   const [formData, setFormData] = useState({
     title: '',
-    lecturer: '',
-    category: 'lecture',
+    lecturerName: '',
     type: 'adhkar',
     description: '',
     tags: '',
@@ -106,7 +105,7 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
     }
 
     // Validate required fields
-    if (!formData.title.trim() || !formData.lecturer.trim()) {
+    if (!formData.title.trim() || !formData.lecturerName.trim()) {
       setError('Title and lecturer are required');
       return;
     }
@@ -118,8 +117,7 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
       const uploadFormData = new FormData();
       uploadFormData.append('file', selectedFile);
       uploadFormData.append('title', formData.title.trim());
-      uploadFormData.append('lecturerName', formData.lecturer.trim()); // Fixed: API expects 'lecturerName'
-      uploadFormData.append('category', formData.category);
+      uploadFormData.append('lecturerName', formData.lecturerName.trim());
       uploadFormData.append('type', formData.type);
       uploadFormData.append('description', formData.description.trim());
       uploadFormData.append('tags', formData.tags.trim());
@@ -293,7 +291,7 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
               </div>
 
           {/* Form Fields in Compact Grid */}
-          <div className="grid lg:grid-cols-4 gap-4">
+          <div className="grid lg:grid-cols-3 gap-4">
             {/* Basic Info */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -317,35 +315,14 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
               </label>
               <input
                 type="text"
-                name="lecturer"
-                value={formData.lecturer}
+                name="lecturerName"
+                value={formData.lecturerName}
                 onChange={handleInputChange}
                 disabled={isUploading}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:opacity-50"
                 placeholder="Enter lecturer name"
                 required
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Category
-              </label>
-              <select
-                name="category"
-                value={formData.category}
-                onChange={handleInputChange}
-                disabled={isUploading}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:opacity-50"
-              >
-                <option value="lecture">Lecture</option>
-                <option value="quran">Quran Recitation</option>
-                <option value="hadith">Hadith</option>
-                <option value="tafsir">Tafsir</option>
-                <option value="adhkar">Adhkar</option>
-                <option value="nasheed">Nasheed</option>
-                <option value="other">Other</option>
-              </select>
             </div>
 
             <div>
@@ -361,9 +338,10 @@ export default function LiveAudioUploadModal({ onUploadSuccess }: LiveAudioUploa
               >
                 <option value="adhkar">Adhkar</option>
                 <option value="lecture">Lecture</option>
-                <option value="recitation">Recitation</option>
-                <option value="discussion">Discussion</option>
-                <option value="other">Other</option>
+                <option value="quran">Quran Recitation</option>
+                <option value="hadith">Hadith</option>
+                <option value="tafsir">Tafsir</option>
+                <option value="qa">Q&A Session</option>
               </select>
             </div>
           </div>
