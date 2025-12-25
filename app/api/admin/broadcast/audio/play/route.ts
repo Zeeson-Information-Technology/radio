@@ -42,7 +42,8 @@ export async function POST(request: NextRequest) {
 
     // Notify gateway to start audio playback
     try {
-      const gatewayResponse = await fetch('http://localhost:8080/api/broadcast/audio/play', {
+      const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
+      const gatewayResponse = await fetch(`${gatewayUrl}/api/broadcast/audio/play`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
