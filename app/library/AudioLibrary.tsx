@@ -10,7 +10,7 @@ interface AudioRecording {
   title: string;
   description?: string;
   lecturerName: string;
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "adhkar" | "qa";
   category?: {
     name: string;
     arabicName?: string;
@@ -88,13 +88,13 @@ export default function AudioLibrary() {
       const data = await response.json();
       console.log("📚 Library API Response:", data);
       
-      if (data.success && data.data) {
-        console.log("✅ Setting recordings:", data.data.recordings.length, "items");
-        setRecordings(data.data.recordings || []);
-        setPagination(data.data.pagination);
+      if (data.success && data.recordings) {
+        console.log("✅ Setting recordings:", data.recordings.length, "items");
+        setRecordings(data.recordings || []);
+        setPagination(data.pagination);
         
         // Extract unique lecturers from recordings
-        const uniqueLecturers = [...new Set(data.data.recordings.map((r: AudioRecording) => r.lecturerName))].filter((name): name is string => typeof name === 'string');
+        const uniqueLecturers = [...new Set(data.recordings.map((r: AudioRecording) => r.lecturerName))].filter((name): name is string => typeof name === 'string');
         setLecturers(uniqueLecturers);
       } else {
         console.log("❌ No data or unsuccessful response");
@@ -132,7 +132,7 @@ export default function AudioLibrary() {
       case "hadith": return "📜";
       case "tafsir": return "📝";
       case "lecture": return "📚";
-      case "dua": return "🤲";
+      case "adhkar": return "🤲";
       case "qa": return "❓";
       default: return "🎵";
     }
@@ -201,7 +201,7 @@ export default function AudioLibrary() {
                 <option value="quran">📖 Quran</option>
                 <option value="hadith">📜 Hadith</option>
                 <option value="tafsir">📝 Tafsir</option>
-                <option value="dua">🤲 Dua</option>
+                <option value="adhkar">🤲 Adhkar</option>
               </select>
               
               {/* Lecturer Filter */}

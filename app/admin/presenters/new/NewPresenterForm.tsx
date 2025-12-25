@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useToast } from "@/lib/contexts/ToastContext";
 
 interface NewPresenterFormProps {
   currentUserRole: "super_admin" | "admin" | "presenter";
@@ -17,6 +18,7 @@ export default function NewPresenterForm({ currentUserRole }: NewPresenterFormPr
   const [success, setSuccess] = useState(false);
   const [tempPassword, setTempPassword] = useState("");
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +55,7 @@ export default function NewPresenterForm({ currentUserRole }: NewPresenterFormPr
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(tempPassword);
-    alert("Password copied to clipboard!");
+    showSuccess("Password Copied", "Password copied to clipboard!");
   };
 
   if (success) {

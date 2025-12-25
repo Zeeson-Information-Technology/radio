@@ -1,176 +1,242 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { verifyAuthToken, hashPassword } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
 import AdminUser from "@/lib/models/AdminUser";
-import { hashPassword, verifyAuthToken } from "@/lib/auth";
-import crypto from "crypto";
+import mongoose from "mongoose";
 
 /**
- * Presenters management endpoint
- * GET /api/admin/presenters - List all presenters (admin only)
- * POST /api/admin/presenters - Create new presenter (admin only)
+ * GET /api/admin/presenters
+ * Get list of presenters for audio sharing
+ * Requirements: 7.2
  */
-
-// Helper to check if user is admin or super_admin
-async function getAuthenticatedAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-
-  if (!token) {
-    return null;
-  }
-
-  const payload = verifyAuthToken(token);
-  if (!payload) {
-    return null;
-  }
-
-  await connectDB();
-  const admin = await AdminUser.findById(payload.userId);
-  
-  // Must be super_admin or admin role
-  if (!admin || (admin.role !== "super_admin" && admin.role !== "admin")) {
-    return null;
-  }
-
-  return admin;
-}
-
-/**
- * GET - List all presenters
- */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const admin = await getAuthenticatedAdmin();
+    // Check authentication
+    const cookieStore = await cookies();
+    const token = cookieStore.get("admin_token")?.value;
 
-    if (!admin) {
-      return NextResponse.json(
-        { error: "Unauthorized. Admin access required." },
-        { status: 403 }
-      );
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const payload = verifyAuthToken(token);
+    if (!payload) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
     await connectDB();
+    const admin = await AdminUser.findById(payload.userId);
+    if (!admin) {
+      return NextResponse.json({ error: "Admin not found" }, { status: 401 });
+    }
 
-    // Fetch all users (both admins and presenters, excluding the current admin if desired)
-    const presenters = await AdminUser.find({})
-      .select("-passwordHash") // Don't send password hash
-      .sort({ createdAt: -1 });
+    // Get all users (including current user for complete user management)
+    // Sort by role priority (super_admin first, then admin, then presenter) and then by name
+    const presenters = await AdminUser.find({
+      role: { $in: ['presenter', 'admin', 'super_admin'] }
+    })
+    .select('name email role createdAt lastLoginAt')
+    .lean();
+
+    // Sort users with super_admin first, then admin, then presenter, and by name within each role
+    const sortedPresenters = presenters.sort((a, b) => {
+      // Define role priority (lower number = higher priority)
+      const rolePriority = {
+        'super_admin': 1,
+        'admin': 2,
+        'presenter': 3
+      };
+
+      const aPriority = rolePriority[a.role as keyof typeof rolePriority] || 4;
+      const bPriority = rolePriority[b.role as keyof typeof rolePriority] || 4;
+
+      // First sort by role priority
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
+      }
+
+      // Then sort by name within the same role
+      return a.name.localeCompare(b.name);
+    });
+
+    const formattedPresenters = sortedPresenters.map(presenter => ({
+      _id: presenter._id.toString(),
+      name: presenter.name,
+      email: presenter.email,
+      role: presenter.role,
+      createdAt: presenter.createdAt.toISOString(),
+      lastLoginAt: presenter.lastLoginAt ? presenter.lastLoginAt.toISOString() : null
+    }));
 
     return NextResponse.json({
-      ok: true,
-      presenters,
+      success: true,
+      presenters: formattedPresenters,
+      count: formattedPresenters.length
     });
+
   } catch (error) {
-    console.error("Get presenters error:", error);
+    console.error("Error fetching presenters:", error);
     return NextResponse.json(
-      { error: "An error occurred while fetching presenters" },
+      { error: "Failed to fetch presenters" },
       { status: 500 }
     );
   }
 }
 
 /**
- * POST - Create new presenter
+ * POST /api/admin/presenters
+ * Create a new presenter/admin user
  */
 export async function POST(request: NextRequest) {
   try {
-    const admin = await getAuthenticatedAdmin();
+    // Check authentication
+    const cookieStore = await cookies();
+    const token = cookieStore.get("admin_token")?.value;
 
-    if (!admin) {
-      return NextResponse.json(
-        { error: "Unauthorized. Admin access required." },
-        { status: 403 }
-      );
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Parse request body
-    const body = await request.json();
-    const { name, email, role = "presenter" } = body;
-
-    // Validate input
-    if (!name || !email) {
-      return NextResponse.json(
-        { error: "Name and email are required" },
-        { status: 400 }
-      );
-    }
-
-    if (typeof email !== "string" || !email.includes("@")) {
-      return NextResponse.json(
-        { error: "Invalid email format" },
-        { status: 400 }
-      );
-    }
-
-    // Validate role
-    if (role !== "admin" && role !== "presenter") {
-      return NextResponse.json(
-        { error: "Role must be 'admin' or 'presenter'" },
-        { status: 400 }
-      );
-    }
-
-    // Role hierarchy: Only super_admin can create admins
-    // Regular admins can only create presenters
-    if (role === "admin" && admin.role !== "super_admin") {
-      return NextResponse.json(
-        { error: "Only super admin can create admin users" },
-        { status: 403 }
-      );
+    const payload = verifyAuthToken(token);
+    if (!payload) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
     await connectDB();
-
-    // Check if user already exists
-    const existingUser = await AdminUser.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
-      return NextResponse.json(
-        { error: "A user with this email already exists" },
-        { status: 409 }
-      );
+    const admin = await AdminUser.findById(payload.userId);
+    if (!admin) {
+      return NextResponse.json({ error: "Admin not found" }, { status: 401 });
     }
 
-    // Generate temporary password (8 random characters)
-    const tempPassword = crypto.randomBytes(4).toString("hex");
+    // Only super_admin and admin can create users
+    if (admin.role !== "super_admin" && admin.role !== "admin") {
+      return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+    }
 
-    // Hash the temporary password
+    const { name, email, role } = await request.json();
+
+    // Validate input
+    if (!name?.trim() || !email?.trim() || !role) {
+      return NextResponse.json({ error: "Name, email, and role are required" }, { status: 400 });
+    }
+
+    // Validate role
+    if (!["presenter", "admin"].includes(role)) {
+      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
+
+    // Only super_admin can create admin users
+    if (role === "admin" && admin.role !== "super_admin") {
+      return NextResponse.json({ error: "Only super admins can create admin users" }, { status: 403 });
+    }
+
+    // Check if email already exists
+    const existingUser = await AdminUser.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return NextResponse.json({ error: "Email already exists" }, { status: 400 });
+    }
+
+    // Generate temporary password
+    const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
     const passwordHash = await hashPassword(tempPassword);
 
-    // Create user with specified role
+    // Create new user
     const newUser = await AdminUser.create({
-      name,
-      email: email.toLowerCase(),
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
       passwordHash,
-      role: role,
-      mustChangePassword: false,
-      createdBy: admin._id,
+      role,
+      mustChangePassword: true,
+      createdBy: admin._id
     });
 
     return NextResponse.json({
-      ok: true,
-      message: `${role === "admin" ? "Admin" : "Presenter"} created successfully`,
+      success: true,
+      message: "User created successfully",
+      tempPassword,
       user: {
-        id: newUser._id,
+        _id: newUser._id.toString(),
+        name: newUser.name,
         email: newUser.email,
-        role: newUser.role,
-        createdAt: newUser.createdAt,
-      },
-      tempPassword, // Return temp password so admin can share it
+        role: newUser.role
+      }
     });
+
   } catch (error) {
-    console.error("Create presenter error:", error);
-    
-    // Handle MongoDB duplicate key error
-    if (error instanceof Error && 'code' in error && (error as any).code === 11000) {
-      return NextResponse.json(
-        { error: "A user with this email already exists" },
-        { status: 409 }
-      );
-    }
-    
+    console.error("Error creating user:", error);
     return NextResponse.json(
-      { error: "An error occurred while creating presenter" },
+      { error: "Failed to create user" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/admin/presenters
+ * Delete a user (super admin only)
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    // Check authentication
+    const cookieStore = await cookies();
+    const token = cookieStore.get("admin_token")?.value;
+
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const payload = verifyAuthToken(token);
+    if (!payload) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    await connectDB();
+    const admin = await AdminUser.findById(payload.userId);
+    if (!admin) {
+      return NextResponse.json({ error: "Admin not found" }, { status: 401 });
+    }
+
+    // Only super_admin can delete users
+    if (admin.role !== "super_admin") {
+      return NextResponse.json({ error: "Only super admins can delete users" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get('id');
+
+    if (!userId) {
+      return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    }
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return NextResponse.json({ error: "Invalid user ID" }, { status: 400 });
+    }
+
+    // Prevent self-deletion
+    if (userId === admin._id.toString()) {
+      return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
+    }
+
+    // Find the user to delete
+    const userToDelete = await AdminUser.findById(userId);
+    if (!userToDelete) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Delete the user
+    await AdminUser.findByIdAndDelete(userId);
+
+    return NextResponse.json({
+      success: true,
+      message: "User deleted successfully"
+    });
+
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    return NextResponse.json(
+      { error: "Failed to delete user" },
       { status: 500 }
     );
   }

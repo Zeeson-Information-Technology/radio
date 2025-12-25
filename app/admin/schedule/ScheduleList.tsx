@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
 import { getTimezoneDisplay } from "@/lib/timezones";
+import { useToast } from "@/lib/contexts/ToastContext";
+import { useConfirm } from "@/lib/hooks/useConfirm";
 
 interface ScheduleItem {
   _id: string;
@@ -39,6 +41,8 @@ export default function ScheduleList({ admin }: ScheduleListProps) {
   const [filter, setFilter] = useState<"all" | "mine">("all");
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
 
   useEffect(() => {
     fetchSchedules();
@@ -65,7 +69,15 @@ export default function ScheduleList({ admin }: ScheduleListProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this schedule entry?")) {
+    const shouldDelete = await confirm({
+      title: "Delete Schedule",
+      message: "Are you sure you want to delete this schedule entry?\n\nThis action cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      type: "danger"
+    });
+
+    if (!shouldDelete) {
       return;
     }
 
@@ -76,14 +88,15 @@ export default function ScheduleList({ admin }: ScheduleListProps) {
       });
 
       if (response.ok) {
+        showSuccess('Schedule Deleted', 'Schedule deleted successfully');
         await fetchSchedules(); // Refresh list
       } else {
         const data = await response.json();
-        alert(data.error || "Failed to delete schedule");
+        showError('Delete Failed', data.error || "Failed to delete schedule");
       }
     } catch (err) {
       console.error('Error deleting schedule:', err);
-      alert("An error occurred while deleting schedule");
+      showError('Delete Failed', "An error occurred while deleting schedule");
     } finally {
       setDeleteId(null);
     }

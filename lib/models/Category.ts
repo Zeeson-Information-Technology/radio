@@ -228,7 +228,7 @@ CategorySchema.statics.createDefaults = async function(this: any): Promise<void>
       displayOrder: 4
     },
     {
-      name: "Dua & Dhikr",
+      name: "Adhkar & Dhikr",
       arabicName: "الدعاء والذكر",
       description: "Supplications and remembrance of Allah",
       icon: "🤲",

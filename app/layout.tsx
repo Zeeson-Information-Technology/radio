@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navigation from "./components/Navigation";
+import { ModalProvider } from "@/lib/contexts/ModalContext";
+import { ToastProvider } from "@/lib/contexts/ToastContext";
+import ToastContainer from "@/components/ui/ToastContainer";
 
 export const metadata: Metadata = {
   title: {
@@ -26,12 +29,19 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body className="min-h-screen bg-white antialiased" suppressHydrationWarning>
-        <Navigation />
-        
-        {/* Add padding to account for fixed navbar */}
-        <div className="pt-16">
-          <main>{children}</main>
-        </div>
+        <ToastProvider>
+          <ModalProvider>
+            <Navigation />
+            
+            {/* Add padding to account for fixed navbar */}
+            <div className="pt-16">
+              <main>{children}</main>
+            </div>
+            
+            {/* Toast notifications */}
+            <ToastContainer />
+          </ModalProvider>
+        </ToastProvider>
       </body>
     </html>
   );

@@ -61,18 +61,26 @@ export async function POST(request: NextRequest) {
       liveState = new LiveState({
         isLive: false,
         isMuted: false,
+        mutedAt: null,
         mount: "/stream",
         title: "Offline",
         lecturer: undefined,
         startedAt: null,
+        isMonitoring: false,
+        currentAudioFile: null,
+        lastActivity: new Date(),
       });
       await liveState.save();
     } else {
-      // Update LiveState to go offline
+      // Update LiveState to go offline - reset all broadcast control state
       liveState.isLive = false;
       liveState.isMuted = false;
+      liveState.mutedAt = null;
+      liveState.isMonitoring = false;
+      liveState.currentAudioFile = null;
       liveState.title = liveState.title || "Offline";
       liveState.startedAt = null;
+      liveState.lastActivity = new Date();
       
       await liveState.save();
     }
@@ -84,6 +92,9 @@ export async function POST(request: NextRequest) {
       liveState: {
         isLive: liveState.isLive,
         isMuted: liveState.isMuted,
+        mutedAt: liveState.mutedAt,
+        isMonitoring: liveState.isMonitoring,
+        currentAudioFile: liveState.currentAudioFile,
         title: liveState.title,
         lecturer: liveState.lecturer,
         startedAt: null,

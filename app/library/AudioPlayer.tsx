@@ -8,7 +8,7 @@ interface AudioRecording {
   title: string;
   description?: string;
   lecturerName: string;
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "adhkar" | "qa";
   tags: string[];
   category?: {
     name: string;
@@ -96,7 +96,7 @@ export default function AudioPlayer({ recording, onClose }: AudioPlayerProps) {
       case "hadith": return "📜";
       case "tafsir": return "📝";
       case "lecture": return "📚";
-      case "dua": return "🤲";
+      case "adhkar": return "🤲";
       case "qa": return "❓";
       default: return "🎵";
     }

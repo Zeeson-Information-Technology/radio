@@ -39,5 +39,5 @@ sleep 3
 curl -s http://localhost:8080/health | python3 -m json.tool
 
 echo "✅ Deployment complete!"
-echo "📡 Stream URL: http://98.93.42.61:8000/live.mp3"
+echo "📡 Stream URL: http://98.93.42.61:8000/stream"
 echo "🎛️ Gateway Health: http://98.93.42.61:8080/health"

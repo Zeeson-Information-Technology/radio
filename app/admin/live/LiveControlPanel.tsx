@@ -312,6 +312,7 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
         <div className="max-w-4xl mx-auto">
           {/* Browser Broadcasting - Single Modern Interface */}
           <BrowserEncoder 
+            admin={admin}
             title={title || 'Live Lecture'}
             lecturer={lecturer || admin.name || admin.email}
             onStreamStart={() => {

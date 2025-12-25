@@ -5,7 +5,7 @@ interface AudioRecording {
   title: string;
   description?: string;
   lecturerName: string;
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "adhkar" | "qa";
   tags: string[];
   year?: number;
   duration: number;
@@ -30,7 +30,7 @@ export default function AudioCard({ recording, onPlay, isPlaying }: AudioCardPro
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
+    const remainingSeconds = Math.floor(seconds % 60);
     
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
@@ -44,7 +44,7 @@ export default function AudioCard({ recording, onPlay, isPlaying }: AudioCardPro
       case "hadith": return "📜";
       case "tafsir": return "📝";
       case "lecture": return "📚";
-      case "dua": return "🤲";
+      case "adhkar": return "🤲";
       case "qa": return "❓";
       default: return "🎵";
     }
@@ -56,7 +56,7 @@ export default function AudioCard({ recording, onPlay, isPlaying }: AudioCardPro
       case "hadith": return "bg-blue-100 text-blue-800";
       case "tafsir": return "bg-purple-100 text-purple-800";
       case "lecture": return "bg-orange-100 text-orange-800";
-      case "dua": return "bg-teal-100 text-teal-800";
+      case "adhkar": return "bg-teal-100 text-teal-800";
       default: return "bg-slate-100 text-slate-800";
     }
   };

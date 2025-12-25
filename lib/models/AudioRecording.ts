@@ -2,7 +2,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 /**
  * AudioRecording interface
- * Represents a recorded audio file with comprehensive metadata
+ * Represents a recorded audio file with comprehensive metadata and access control
  */
 export interface IAudioRecording extends Document {
   title: string;
@@ -14,7 +14,7 @@ export interface IAudioRecording extends Document {
   
   // Content classification
   category: mongoose.Types.ObjectId; // Reference to Category
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "adhkar";
   tags: string[];
   
   // Temporal information
@@ -46,6 +46,11 @@ export interface IAudioRecording extends Document {
   originalFormat?: string; // Original uploaded format
   playbackFormat: string; // Format used for playback (usually mp3)
   
+  // Access Control (Requirements 7.1, 7.2, 8.1, 8.2, 8.3)
+  visibility: "private" | "shared" | "public"; // Who can access this audio
+  sharedWith: mongoose.Types.ObjectId[]; // Presenter IDs for shared visibility
+  broadcastReady: boolean; // Suitable for live broadcast injection
+  
   // Security
   accessLevel: "public" | "authenticated" | "admin";
   
@@ -57,10 +62,21 @@ export interface IAudioRecording extends Document {
   // Analytics
   playCount: number;
   lastPlayed?: Date;
+  broadcastUsageCount: number; // How many times used in broadcasts
+  lastUsedInBroadcast?: Date; // When last used in a broadcast
   
   // Status
   status: "processing" | "active" | "archived";
   isPublic: boolean;
+}
+
+/**
+ * User Favorites interface for tracking per-user favorites
+ */
+export interface IAudioFavorite extends Document {
+  userId: mongoose.Types.ObjectId; // Admin/Presenter ID
+  audioId: mongoose.Types.ObjectId; // AudioRecording ID
+  createdAt: Date;
 }
 
 const AudioRecordingSchema = new Schema<IAudioRecording>(
@@ -97,7 +113,7 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
     },
     type: {
       type: String,
-      enum: ["quran", "hadith", "tafsir", "lecture", "dua", "qa"],
+      enum: ["quran", "hadith", "tafsir", "lecture", "adhkar", "qa"],
       required: true,
       index: true,
     },
@@ -212,6 +228,25 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
       default: "mp3",
     },
     
+    // Access Control (Requirements 7.1, 7.2, 8.1, 8.2, 8.3)
+    visibility: {
+      type: String,
+      enum: ["private", "shared", "public"],
+      default: "public", // Simple default value instead of function
+      index: true,
+    },
+    sharedWith: {
+      type: [Schema.Types.ObjectId],
+      ref: "AdminUser",
+      default: [],
+      index: true,
+    },
+    broadcastReady: {
+      type: Boolean,
+      default: true, // Most audio files are suitable for broadcast
+      index: true,
+    },
+    
     // Security
     accessLevel: {
       type: String,
@@ -246,6 +281,16 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
     lastPlayed: {
       type: Date,
     },
+    broadcastUsageCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      index: true,
+    },
+    lastUsedInBroadcast: {
+      type: Date,
+      index: true,
+    },
     
     // Status
     status: {
@@ -273,6 +318,13 @@ AudioRecordingSchema.index({ uploadDate: -1, status: 1 });
 AudioRecordingSchema.index({ playCount: -1, status: 1 });
 AudioRecordingSchema.index({ tags: 1, status: 1 });
 
+// Access control indexes (Requirements 7.3, 8.3)
+AudioRecordingSchema.index({ visibility: 1, status: 1 });
+AudioRecordingSchema.index({ createdBy: 1, visibility: 1 });
+AudioRecordingSchema.index({ sharedWith: 1, status: 1 });
+AudioRecordingSchema.index({ broadcastReady: 1, status: 1 });
+AudioRecordingSchema.index({ broadcastUsageCount: -1, status: 1 });
+
 // Text search index for full-text search
 AudioRecordingSchema.index({
   title: "text",
@@ -280,6 +332,74 @@ AudioRecordingSchema.index({
   lecturerName: "text",
   tags: "text"
 });
+
+// Static methods for access control (Requirements 8.5, 8.6, 8.7)
+AudioRecordingSchema.statics.getAccessibleFiles = function(userId: string, userRole: string) {
+  const query: any = { status: 'active' };
+  
+  // Super admins see everything (Requirements 8.5)
+  if (userRole === 'super_admin') {
+    return this.find(query);
+  }
+  
+  // Regular admins see public and admin-uploaded files (Requirements 8.6)
+  if (userRole === 'admin') {
+    query.$or = [
+      // Handle both visibility field naming conventions
+      { visibility: 'public' },
+      { isPublic: true }, // Legacy field name
+      { accessLevel: 'public' }, // Alternative field name
+      { visibility: 'shared', sharedWith: userId },
+      { createdBy: userId }
+    ];
+    return this.find(query);
+  }
+  
+  // Presenters see based on visibility rules (Requirements 8.7)
+  query.$or = [
+    // Handle both visibility field naming conventions
+    { visibility: 'public' },
+    { isPublic: true }, // Legacy field name
+    { accessLevel: 'public' }, // Alternative field name
+    { visibility: 'shared', sharedWith: userId },
+    { createdBy: userId }
+  ];
+  
+  return this.find(query);
+};
+
+// Instance methods for sharing management
+AudioRecordingSchema.methods.shareWith = function(presenterIds: string[]) {
+  if (this.visibility !== 'shared') {
+    this.visibility = 'shared';
+  }
+  
+  // Add new presenters to sharedWith array (avoid duplicates)
+  const currentShared = this.sharedWith.map((id: any) => id.toString());
+  const newShared = presenterIds.filter(id => !currentShared.includes(id));
+  this.sharedWith.push(...newShared);
+  
+  return this.save();
+};
+
+AudioRecordingSchema.methods.unshareWith = function(presenterIds: string[]) {
+  this.sharedWith = this.sharedWith.filter((id: any) => 
+    !presenterIds.includes(id.toString())
+  );
+  
+  // If no one is shared with, make it private
+  if (this.sharedWith.length === 0 && this.visibility === 'shared') {
+    this.visibility = 'private';
+  }
+  
+  return this.save();
+};
+
+AudioRecordingSchema.methods.updateBroadcastUsage = function() {
+  this.broadcastUsageCount += 1;
+  this.lastUsedInBroadcast = new Date();
+  return this.save();
+};
 
 // Pre-save middleware to update timestamps
 AudioRecordingSchema.pre("save", function() {
@@ -297,4 +417,72 @@ if (mongoose.models.AudioRecording) {
 const AudioRecording: Model<IAudioRecording> = 
   mongoose.model<IAudioRecording>("AudioRecording", AudioRecordingSchema);
 
+// AudioFavorite Schema for per-user favorites (Requirements 7.7)
+const AudioFavoriteSchema = new Schema<IAudioFavorite>(
+  {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminUser",
+      required: true,
+      index: true,
+    },
+    audioId: {
+      type: Schema.Types.ObjectId,
+      ref: "AudioRecording",
+      required: true,
+      index: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+  },
+  {
+    timestamps: { createdAt: false, updatedAt: false },
+  }
+);
+
+// Compound index for efficient favorite queries
+AudioFavoriteSchema.index({ userId: 1, audioId: 1 }, { unique: true });
+
+// Static methods for favorites management
+AudioFavoriteSchema.statics.addFavorite = async function(userId: string, audioId: string) {
+  try {
+    await this.create({ userId, audioId });
+    return true;
+  } catch (error: any) {
+    // Handle duplicate key error (already favorited)
+    if (error.code === 11000) {
+      return false; // Already favorited
+    }
+    throw error;
+  }
+};
+
+AudioFavoriteSchema.statics.removeFavorite = async function(userId: string, audioId: string) {
+  const result = await this.deleteOne({ userId, audioId });
+  return result.deletedCount > 0;
+};
+
+AudioFavoriteSchema.statics.getUserFavorites = function(userId: string) {
+  return this.find({ userId })
+    .populate('audioId')
+    .sort({ createdAt: -1 });
+};
+
+AudioFavoriteSchema.statics.isFavorite = async function(userId: string, audioId: string) {
+  const favorite = await this.findOne({ userId, audioId });
+  return !!favorite;
+};
+
+// Force schema refresh by deleting cached model
+if (mongoose.models.AudioFavorite) {
+  delete mongoose.models.AudioFavorite;
+}
+
+const AudioFavorite: Model<IAudioFavorite> = 
+  mongoose.model<IAudioFavorite>("AudioFavorite", AudioFavoriteSchema);
+
 export default AudioRecording;
+export { AudioFavorite };

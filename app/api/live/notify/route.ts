@@ -1,125 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentAdmin } from "@/lib/server-auth";
-import { connectDB } from "@/lib/db";
-import LiveState from "@/lib/models/LiveState";
 import { broadcastUpdate } from "../events/route";
 
 /**
  * POST /api/live/notify
- * Notify listeners of broadcast state changes
- * Called by admin when starting/stopping broadcasts
+ * Endpoint for gateway to send broadcast events to SSE listeners
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const admin = await getCurrentAdmin();
-    if (!admin) {
-      return NextResponse.json(
-        { success: false, message: "Authentication required" },
-        { status: 401 }
-      );
-    }
-
-    const { action, title, lecturer } = await request.json();
-
-    // Validate action
-    if (!['start', 'stop', 'mute', 'unmute'].includes(action)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid action" },
-        { status: 400 }
-      );
-    }
-
-    await connectDB();
-
-    // Get current live state
-    let liveState = await LiveState.findOne();
+    const body = await request.json();
     
-    if (!liveState) {
-      liveState = new LiveState({
-        isLive: false,
-        isMuted: false,
-        mount: '/stream',
-        title: undefined,
-        lecturer: undefined,
-        startedAt: null,
-        updatedAt: new Date()
-      });
-      await liveState.save();
-    }
-
-    // Update state based on action
-    switch (action) {
-      case 'start':
-        liveState.isLive = true;
-        liveState.isMuted = false;
-        liveState.title = title || 'Live Lecture';
-        liveState.lecturer = lecturer || admin.name || admin.email;
-        liveState.startedAt = new Date();
-        break;
-        
-      case 'stop':
-        liveState.isLive = false;
-        liveState.isMuted = false;
-        liveState.title = undefined;
-        liveState.lecturer = undefined;
-        liveState.startedAt = null;
-        break;
-        
-      case 'mute':
-        if (liveState.isLive) {
-          liveState.isMuted = true;
-        }
-        break;
-        
-      case 'unmute':
-        if (liveState.isLive) {
-          liveState.isMuted = false;
-        }
-        break;
-    }
-
-    liveState.updatedAt = new Date();
-    await liveState.save();
-
-    console.log(`📢 Broadcast notification: ${action} by ${admin.email}`);
-
-    // Broadcast real-time update to all listeners
-    const updateData = {
-      type: `broadcast_${action}`,
-      action,
-      isLive: liveState.isLive,
-      isMuted: liveState.isMuted,
-      title: liveState.title || null,
-      lecturer: liveState.lecturer || null,
-      startedAt: liveState.startedAt?.toISOString() || null,
-      timestamp: new Date().toISOString(),
-      streamUrl: process.env.STREAM_URL || "http://98.93.42.61:8000/stream"
-    };
+    // Verify internal API key (basic security)
+    const authHeader = request.headers.get('authorization');
+    const expectedAuth = `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`;
     
-    broadcastUpdate(updateData);
-
-    return NextResponse.json({
-      success: true,
-      message: `Listeners will see the ${action} immediately`,
-      action,
-      state: {
-        isLive: liveState.isLive,
-        isMuted: liveState.isMuted,
-        title: liveState.title || null,
-        lecturer: liveState.lecturer || null,
-        startedAt: liveState.startedAt?.toISOString() || null
-      }
+    console.log('🔍 Notify API Debug:', {
+      receivedAuth: authHeader?.substring(0, 20) + '...',
+      expectedAuth: expectedAuth.substring(0, 20) + '...',
+      match: authHeader === expectedAuth,
+      eventType: body.type
     });
+    
+    if (authHeader !== expectedAuth) {
+      console.warn('❌ Auth mismatch:', { received: authHeader, expected: expectedAuth });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
+    // Extract event data
+    const { action, type, message, ...eventData } = body;
+    
+    if (action !== 'broadcast_event' || !type) {
+      return NextResponse.json({ error: 'Invalid event data' }, { status: 400 });
+    }
+
+    // Map gateway event types to SSE event types
+    const sseEventData = {
+      type,
+      message,
+      timestamp: new Date().toISOString(),
+      ...eventData
+    };
+
+    // Handle specific event types
+    switch (type) {
+      case 'broadcast_muted':
+        sseEventData.isMuted = true;
+        sseEventData.mutedAt = eventData.mutedAt || new Date().toISOString();
+        break;
+        
+      case 'broadcast_unmuted':
+        sseEventData.isMuted = false;
+        sseEventData.mutedAt = null;
+        break;
+        
+      case 'audio_playback_started':
+        // Map to the format expected by RadioPlayer
+        sseEventData.type = 'audio_playback_start';
+        sseEventData.currentAudioFile = {
+          title: eventData.audioFile?.title || 'Unknown Audio',
+          duration: eventData.audioFile?.duration || 0,
+          startedAt: new Date().toISOString()
+        };
+        break;
+        
+      case 'audio_playback_stopped':
+        // Map to the format expected by RadioPlayer
+        sseEventData.type = 'audio_playback_stop';
+        sseEventData.currentAudioFile = null;
+        break;
+    }
+
+    // Broadcast to all SSE listeners
+    broadcastUpdate(sseEventData);
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Event broadcasted to listeners' 
+    });
+    
   } catch (error) {
-    console.error("❌ Notification API error:", error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: "Failed to send notification" 
-      },
-      { status: 500 }
-    );
+    console.error('❌ Error in notify endpoint:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error' 
+    }, { status: 500 });
   }
 }

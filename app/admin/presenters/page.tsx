@@ -24,5 +24,5 @@ export default async function PresentersPage() {
     redirect("/admin/live");
   }
 
-  return <PresentersList />;
+  return <PresentersList currentUser={{ _id: admin._id.toString(), role: admin.role }} />;
 }

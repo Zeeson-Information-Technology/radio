@@ -5,21 +5,52 @@
 const { spawn } = require('child_process');
 const config = require('../config');
 
+// Import fetch for Node.js versions that don't have it built-in
+let fetch;
+try {
+  fetch = globalThis.fetch;
+} catch (e) {
+  // Fallback for older Node.js versions
+  fetch = require('node-fetch');
+}
+
 class BroadcastService {
-  constructor(databaseService) {
+  constructor(databaseService, audioStateManager = null) {
     this.databaseService = databaseService;
+    this.audioStateManager = audioStateManager;
     this.ffmpegProcess = null;
     this.isStreaming = false;
     this.currentBroadcast = null;
+    this.testStreamRoute = null; // Will be set by server.js
   }
 
   async startStreaming(ws, user, streamConfig = {}) {
+    console.log(`🎙️ startStreaming called for ${user.email} with config:`, streamConfig);
+    
     if (this.isStreaming) {
+      console.log(`❌ Stream already active, rejecting request from ${user.email}`);
       ws.send(JSON.stringify({
         type: 'error',
         message: 'Stream already active'
       }));
       return;
+    }
+
+    // Add a small delay to ensure cleanup is complete
+    if (this.ffmpegProcess) {
+      console.log(`⚠️ Previous FFmpeg process still exists, waiting for cleanup...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      if (this.ffmpegProcess) {
+        console.log(`❌ Previous FFmpeg process still running, force killing...`);
+        try {
+          this.ffmpegProcess.kill('SIGKILL');
+          this.ffmpegProcess = null;
+        } catch (error) {
+          console.warn('Error force killing FFmpeg:', error.message);
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
 
     console.log(`🎙️ Starting stream for ${user.email}`);
@@ -99,32 +130,66 @@ class BroadcastService {
   }
 
   startFFmpeg(ws, user, audioConfig) {
-    const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
+    // Clean up old test stream files first
+    this.cleanupOldTestFiles();
     
-    // Production-ready Icecast streaming configuration
-    const ffmpegArgs = [
-      // Input: Raw PCM from browser
-      '-f', 's16le',
-      '-ar', audioConfig.sampleRate.toString(),
-      '-ac', audioConfig.channels.toString(),
-      '-i', 'pipe:0',
+    // For local testing, check if we should output to file instead of Icecast
+    const isLocalTesting = process.env.NODE_ENV === 'development' && config.ICECAST_HOST === 'localhost';
+    
+    let ffmpegArgs;
+    
+    if (isLocalTesting) {
+      // Local testing: output to stdout for live streaming
+      console.log('🧪 Local testing mode: outputting to stdout for live streaming');
       
-      // Audio encoding for Icecast compatibility
-      '-acodec', 'libmp3lame',
-      '-b:a', '128k',
-      '-ar', '44100',
-      '-ac', '1',
-      '-f', 'mp3',
+      ffmpegArgs = [
+        // Input: Raw PCM from browser
+        '-f', 's16le',
+        '-ar', audioConfig.sampleRate.toString(),
+        '-ac', audioConfig.channels.toString(),
+        '-i', 'pipe:0',
+        
+        // Audio encoding for optimal voice quality
+        '-acodec', 'libmp3lame',
+        '-b:a', '128k',
+        '-ar', '44100',
+        '-ac', '1',
+        '-f', 'mp3',
+        // Simplified voice optimization filters (fixed syntax)
+        '-af', 'highpass=f=80,lowpass=f=8000,volume=1.2',
+        
+        // Output to stdout for live streaming
+        'pipe:1'
+      ];
+    } else {
+      // Production: output to Icecast
+      const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
       
-      // Icecast streaming parameters
-      '-ice_name', 'Al-Manhaj Radio',
-      '-ice_description', `Live from ${user.name || user.email}`,
-      '-ice_genre', 'Islamic',
-      '-ice_public', '1',
-      
-      // Output to Icecast
-      icecastUrl
-    ];
+      ffmpegArgs = [
+        // Input: Raw PCM from browser
+        '-f', 's16le',
+        '-ar', audioConfig.sampleRate.toString(),
+        '-ac', audioConfig.channels.toString(),
+        '-i', 'pipe:0',
+        
+        // Audio encoding for Icecast compatibility with voice optimization
+        '-acodec', 'libmp3lame',
+        '-b:a', '128k',
+        '-ar', '44100',
+        '-ac', '1',
+        '-f', 'mp3',
+        '-af', 'highpass=f=80,lowpass=f=8000,volume=1.2',
+        
+        // Icecast streaming parameters
+        '-ice_name', 'Al-Manhaj Radio',
+        '-ice_description', `Live from ${user.name || user.email}`,
+        '-ice_genre', 'Islamic',
+        '-ice_public', '1',
+        
+        // Output to Icecast
+        icecastUrl
+      ];
+    }
 
     console.log('🔧 Starting FFmpeg with args:', ffmpegArgs.join(' '));
 
@@ -132,10 +197,49 @@ class BroadcastService {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    // Set a timeout to detect if FFmpeg fails to start
+    const startupTimeout = setTimeout(() => {
+      if (!this.isStreaming && this.ffmpegProcess) {
+        console.error('❌ FFmpeg startup timeout - process failed to start within 5 seconds');
+        
+        if (ws && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'stream_error',
+            message: 'FFmpeg startup timeout. Please check your audio settings and try again.'
+          }));
+        }
+        
+        // Kill the process if it's still running
+        try {
+          this.ffmpegProcess.kill('SIGTERM');
+        } catch (error) {
+          console.warn('Error killing FFmpeg process:', error.message);
+        }
+      }
+    }, 5000);
+
     // Handle FFmpeg events
     this.ffmpegProcess.on('spawn', () => {
-      console.log('✅ FFmpeg process started');
+      console.log('✅ FFmpeg process started successfully');
+      clearTimeout(startupTimeout); // Clear the timeout since FFmpeg started
       this.isStreaming = true;
+      
+      // For local testing, pipe FFmpeg output to live stream
+      if (isLocalTesting && this.testStreamRoute && this.testStreamRoute.setLiveAudioData) {
+        console.log('🔄 Setting up live audio streaming from FFmpeg stdout');
+        
+        this.ffmpegProcess.stdout.on('data', (chunk) => {
+          // Send live audio data to test stream
+          this.testStreamRoute.setLiveAudioData(chunk);
+        });
+        
+        this.ffmpegProcess.stdout.on('end', () => {
+          console.log('📻 FFmpeg stdout ended');
+          if (this.testStreamRoute && this.testStreamRoute.stopLiveAudioStream) {
+            this.testStreamRoute.stopLiveAudioStream();
+          }
+        });
+      }
       
       ws.send(JSON.stringify({
         type: 'stream_started',
@@ -145,13 +249,26 @@ class BroadcastService {
     });
 
     this.ffmpegProcess.on('error', (error) => {
-      console.error('❌ FFmpeg error:', error);
+      console.error('❌ FFmpeg spawn error:', error);
+      clearTimeout(startupTimeout); // Clear timeout since we got an error
       this.handleFFmpegError(ws, user, error);
     });
 
     this.ffmpegProcess.on('exit', (code, signal) => {
       console.log(`🔚 FFmpeg exited with code ${code}, signal ${signal}`);
       this.isStreaming = false;
+      
+      // If FFmpeg exits immediately after spawn, it means there was a startup error
+      if (code !== 0 && code !== null) {
+        console.error(`❌ FFmpeg failed to start properly (exit code: ${code})`);
+        
+        if (ws && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'stream_error',
+            message: `FFmpeg failed to start (code ${code}). Please try again.`
+          }));
+        }
+      }
       
       // Log specific error codes for debugging
       if (code === 234) {
@@ -220,6 +337,11 @@ class BroadcastService {
 
   async stopStreaming(ws, user) {
     console.log(`🛑 Stopping stream for ${user.email}`);
+
+    // Stop live audio stream
+    if (this.testStreamRoute && this.testStreamRoute.stopLiveAudioStream) {
+      this.testStreamRoute.stopLiveAudioStream();
+    }
 
     // Validate user has permission to stop
     if (this.currentBroadcast && this.currentBroadcast.user.userId !== user.userId) {
@@ -343,6 +465,444 @@ class BroadcastService {
       hasFFmpeg: !!this.ffmpegProcess,
       hasBroadcast: !!this.currentBroadcast
     };
+  }
+
+  // New broadcast control methods for live-broadcast-controls feature
+
+  /**
+   * Mute the broadcast - stop audio transmission while maintaining session
+   * Requirements 2.1, 2.2, 2.3: Mute functionality with state management
+   */
+  async muteBroadcast(ws, user) {
+    console.log(`🔇 Muting broadcast for ${user.email}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'mute')) {
+      return;
+    }
+
+    try {
+      // Update database state using AudioStateManager (Requirements 2.2, 2.3)
+      const sessionId = this.currentBroadcast ? this.currentBroadcast.sessionId : null;
+      const muteState = this.audioStateManager 
+        ? await this.audioStateManager.updateMuteState(true, sessionId)
+        : await this.databaseService.updateLiveState({
+            isMuted: true,
+            mutedAt: new Date()
+          });
+
+      // Update current broadcast state
+      if (this.currentBroadcast) {
+        this.currentBroadcast.isMuted = true;
+        this.currentBroadcast.mutedAt = new Date();
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'broadcast_muted',
+          message: 'Broadcast muted successfully',
+          mutedAt: new Date().toISOString()
+        }));
+      }
+
+      // Notify all listeners (Requirements 2.4)
+      await this.notifyListeners({
+        type: 'broadcast_muted',
+        message: 'The presenter is taking a break',
+        mutedAt: new Date().toISOString()
+      });
+
+      // Set up mute timeout reminder (Requirements 2.7)
+      this.setupMuteTimeoutReminder(ws, user);
+
+      console.log(`✅ Broadcast muted for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error muting broadcast:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to mute broadcast'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Unmute the broadcast - resume audio transmission
+   * Requirements 2.5, 2.6: Unmute functionality with state restoration
+   */
+  async unmuteBroadcast(ws, user) {
+    console.log(`🔊 Unmuting broadcast for ${user.email}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'unmute')) {
+      return;
+    }
+
+    try {
+      // Update database state using AudioStateManager (Requirements 2.5, 2.6)
+      const sessionId = this.currentBroadcast ? this.currentBroadcast.sessionId : null;
+      const unmuteState = this.audioStateManager 
+        ? await this.audioStateManager.updateUnmuteState(sessionId)
+        : await this.databaseService.updateLiveState({
+            isMuted: false,
+            mutedAt: null
+          });
+
+      // Update current broadcast state
+      if (this.currentBroadcast) {
+        this.currentBroadcast.isMuted = false;
+        this.currentBroadcast.mutedAt = null;
+        
+        // Clear mute timeout reminder
+        if (this.currentBroadcast.muteTimeoutReminder) {
+          clearTimeout(this.currentBroadcast.muteTimeoutReminder);
+          this.currentBroadcast.muteTimeoutReminder = null;
+        }
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'broadcast_unmuted',
+          message: 'Broadcast resumed successfully'
+        }));
+      }
+
+      // Notify all listeners (Requirements 2.6)
+      await this.notifyListeners({
+        type: 'broadcast_unmuted',
+        message: 'The broadcast has resumed'
+      });
+
+      console.log(`✅ Broadcast unmuted for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error unmuting broadcast:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to unmute broadcast'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Toggle monitor mode for the presenter
+   * Requirements 1.2, 1.3, 1.4: Monitor control with status tracking
+   */
+  async toggleMonitor(ws, user, enabled) {
+    console.log(`🎧 Toggling monitor for ${user.email}: ${enabled}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'monitor')) {
+      return;
+    }
+
+    try {
+      // Update database state using AudioStateManager
+      const sessionId = this.currentBroadcast ? this.currentBroadcast.sessionId : null;
+      const monitorState = this.audioStateManager 
+        ? await this.audioStateManager.updateMonitorState(enabled, sessionId)
+        : await this.databaseService.updateLiveState({
+            isMonitoring: enabled
+          });
+
+      // Update current broadcast state
+      if (this.currentBroadcast) {
+        this.currentBroadcast.isMonitoring = enabled;
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'monitor_toggled',
+          message: `Monitor ${enabled ? 'enabled' : 'disabled'}`,
+          isMonitoring: enabled
+        }));
+      }
+
+      console.log(`✅ Monitor ${enabled ? 'enabled' : 'disabled'} for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error toggling monitor:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to toggle monitor'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Inject pre-recorded audio into the broadcast
+   * Requirements 3.1, 3.2, 3.7: Audio injection with status tracking
+   */
+  async injectAudio(ws, user, data) {
+    console.log(`🎵 Injecting audio for ${user.email}:`, data.fileId);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'inject_audio')) {
+      return;
+    }
+
+    try {
+      const { fileId, fileName, duration } = data;
+
+      // Update current broadcast state
+      if (this.currentBroadcast) {
+        this.currentBroadcast.currentAudioFile = {
+          id: fileId,
+          title: fileName,
+          duration: duration,
+          startedAt: new Date()
+        };
+      }
+
+      // Update database state (in memory only, not persistent)
+      await this.databaseService.updateLiveState({
+        currentAudioFile: {
+          id: fileId,
+          title: fileName,
+          duration: duration,
+          startedAt: new Date()
+        }
+      });
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'audio_injection_started',
+          message: `Playing: ${fileName}`,
+          audioFile: {
+            id: fileId,
+            title: fileName,
+            duration: duration,
+            startedAt: new Date().toISOString()
+          }
+        }));
+      }
+
+      // Notify listeners (Requirements 3.7)
+      await this.notifyListeners({
+        type: 'audio_playback_started',
+        message: `Now playing: ${fileName}`,
+        audioFile: {
+          title: fileName,
+          duration: duration
+        }
+      });
+
+      console.log(`✅ Audio injection started for ${user.email}: ${fileName}`);
+    } catch (error) {
+      console.error('❌ Error injecting audio:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to inject audio'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Stop audio injection
+   * Requirements 3.4, 3.6: Stop audio injection and restore microphone
+   */
+  async stopAudioInjection(ws, user) {
+    console.log(`⏹️ Stopping audio injection for ${user.email}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'stop_audio')) {
+      return;
+    }
+
+    try {
+      // Clear current audio file from broadcast state
+      if (this.currentBroadcast) {
+        this.currentBroadcast.currentAudioFile = null;
+      }
+
+      // Update database state
+      await this.databaseService.updateLiveState({
+        currentAudioFile: null
+      });
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'audio_injection_stopped',
+          message: 'Audio playback stopped'
+        }));
+      }
+
+      // Notify listeners
+      await this.notifyListeners({
+        type: 'audio_playback_stopped',
+        message: 'Audio playback ended'
+      });
+
+      console.log(`✅ Audio injection stopped for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error stopping audio injection:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to stop audio injection'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Validate user has permission to perform broadcast control action
+   */
+  validateBroadcastPermission(ws, user, action) {
+    // Check if user has an active broadcast
+    if (!this.currentBroadcast) {
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Cannot ${action}: No active broadcast session`
+        }));
+      }
+      return false;
+    }
+
+    // Check if user owns the broadcast or is super admin
+    if (this.currentBroadcast.user.userId !== user.userId && user.role !== 'super_admin') {
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Cannot ${action}: You can only control your own broadcast`
+        }));
+      }
+      return false;
+    }
+
+    // Check if broadcast is live
+    if (!this.isStreaming) {
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Cannot ${action}: Broadcast is not live`
+        }));
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Set up mute timeout reminder
+   * Requirements 2.7: Mute timeout reminder system
+   */
+  setupMuteTimeoutReminder(ws, user) {
+    if (!this.currentBroadcast) return;
+
+    // Clear any existing reminder
+    if (this.currentBroadcast.muteTimeoutReminder) {
+      clearTimeout(this.currentBroadcast.muteTimeoutReminder);
+    }
+
+    // Set 5-minute reminder
+    this.currentBroadcast.muteTimeoutReminder = setTimeout(() => {
+      if (this.currentBroadcast && this.currentBroadcast.isMuted && ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'mute_timeout_reminder',
+          message: 'Your broadcast has been muted for over 5 minutes. Consider unmuting or ending the session.',
+          mutedDuration: 5 * 60 * 1000 // 5 minutes in milliseconds
+        }));
+        
+        console.log(`⏰ Mute timeout reminder sent to ${user.email}`);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+  }
+
+  /**
+   * Notify all connected listeners about broadcast state changes
+   * Requirements 2.4, 2.6, 5.1, 5.2, 5.3: Real-time listener notifications
+   */
+  async notifyListeners(eventData) {
+    try {
+      const apiKey = config.INTERNAL_API_KEY || 'internal';
+      const apiUrl = `${config.NEXTJS_API_URL}/api/live/notify`;
+      
+      console.log('🔍 Notify Debug:', {
+        apiUrl,
+        apiKey: apiKey.substring(0, 8) + '...',
+        eventType: eventData.type
+      });
+      
+      // Send notification to Next.js API to broadcast via SSE
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          action: 'broadcast_event',
+          ...eventData
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`⚠️ Failed to notify listeners via API: ${response.status} - ${errorText}`);
+      } else {
+        console.log('📡 Listeners notified:', eventData.type);
+      }
+    } catch (error) {
+      console.error('❌ Error notifying listeners:', error);
+    }
+  }
+
+  /**
+   * Set reference to test stream route for live streaming
+   */
+  setTestStreamRoute(testStreamRoute) {
+    this.testStreamRoute = testStreamRoute;
+  }
+
+  /**
+   * Clean up old test stream files to prevent disk space issues
+   */
+  cleanupOldTestFiles() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const gatewayDir = path.dirname(__dirname);
+      
+      const files = fs.readdirSync(gatewayDir)
+        .filter(file => file.startsWith('test-stream-') && file.endsWith('.mp3'))
+        .map(file => ({
+          name: file,
+          path: path.join(gatewayDir, file),
+          mtime: fs.statSync(path.join(gatewayDir, file)).mtime
+        }))
+        .sort((a, b) => b.mtime - a.mtime);
+
+      // Keep only the 3 most recent files, delete the rest
+      const filesToDelete = files.slice(3);
+      
+      filesToDelete.forEach(file => {
+        try {
+          fs.unlinkSync(file.path);
+          console.log(`🗑️ Cleaned up old test stream: ${file.name}`);
+        } catch (error) {
+          console.warn(`⚠️ Could not delete ${file.name}:`, error.message);
+        }
+      });
+      
+      if (filesToDelete.length > 0) {
+        console.log(`🧹 Cleaned up ${filesToDelete.length} old test stream files`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Error during test file cleanup:', error.message);
+    }
   }
 }
 
