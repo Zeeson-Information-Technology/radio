@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { SerializedAdmin } from "@/lib/types/admin";
-import EditRecordingModal from "./EditRecordingModal";
-import DeleteConfirmModal from "./DeleteConfirmModal";
 import UniversalAudioPlayer from "../../components/UniversalAudioPlayer";
+import { useAudioModals } from "@/lib/hooks/useAudioModals";
+import { useToast } from "@/lib/contexts/ToastContext";
 
 interface AudioListProps {
   admin: SerializedAdmin;
@@ -15,7 +15,7 @@ interface AudioRecording {
   title: string;
   description?: string;
   lecturerName: string;
-  type: "quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa";
+  type: "quran" | "hadith" | "tafsir" | "lecture" | "adhkar" | "qa";
   category?: {
     name: string;
     arabicName?: string;
@@ -46,35 +46,14 @@ export default function AudioList({ admin }: AudioListProps) {
   const [playingRecording, setPlayingRecording] = useState<AudioRecording | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>("");
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
-  const [editingRecording, setEditingRecording] = useState<AudioRecording | null>(null);
-  const [deletingRecording, setDeletingRecording] = useState<AudioRecording | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+
+  // Use global modal system
+  const { openEditModal, openDeleteModal } = useAudioModals();
+  const { showSuccess, showError } = useToast();
 
   useEffect(() => {
     fetchRecordings();
   }, []);
-
-  // Auto-dismiss success messages after 5 seconds
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => {
-        setSuccessMessage("");
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
-
-  // Auto-dismiss error messages after 8 seconds
-  useEffect(() => {
-    if (errorMessage) {
-      const timer = setTimeout(() => {
-        setErrorMessage("");
-      }, 8000);
-      return () => clearTimeout(timer);
-    }
-  }, [errorMessage]);
 
   const fetchRecordings = async () => {
     try {
@@ -106,7 +85,7 @@ export default function AudioList({ admin }: AudioListProps) {
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
+    const remainingSeconds = Math.floor(seconds % 60);
     
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
@@ -120,7 +99,7 @@ export default function AudioList({ admin }: AudioListProps) {
       case "hadith": return "📜";
       case "tafsir": return "📝";
       case "lecture": return "📚";
-      case "dua": return "🤲";
+      case "adhkar": return "🤲";
       case "qa": return "❓";
       default: return "🎵";
     }
@@ -165,7 +144,7 @@ export default function AudioList({ admin }: AudioListProps) {
     } catch (error) {
       console.error("Error playing audio:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-      setErrorMessage(`Failed to play audio: ${errorMessage}`);
+      showError("Playback Failed", `Failed to play audio: ${errorMessage}`);
       setLoadingAudioId(null);
     }
   };
@@ -176,40 +155,38 @@ export default function AudioList({ admin }: AudioListProps) {
   };
 
   const handleAudioError = (error: string) => {
-    setErrorMessage(`Audio playback error: ${error}`);
+    showError("Audio Error", `Audio playback error: ${error}`);
     setPlayingRecording(null);
     setAudioUrl("");
   };
 
   const handleEdit = (recording: AudioRecording) => {
-    setEditingRecording(recording);
-  };
+    const audioFile = {
+      id: recording._id,
+      title: recording.title,
+      description: recording.description,
+      lecturerName: recording.lecturerName,
+      category: recording.category || { name: 'Unknown' },
+      duration: recording.duration,
+      fileSize: recording.fileSize,
+      url: '', // Not needed for edit
+      visibility: 'public' as const,
+      sharedWith: [],
+      createdBy: { _id: '', name: '', email: '' },
+      broadcastReady: false,
+      broadcastUsageCount: 0,
+      createdAt: recording.uploadDate,
+      isFavorite: false,
+      isOwner: true,
+      type: recording.type,
+      year: recording.year,
+      tags: recording.tags
+    };
 
-  const handleSaveEdit = async (updatedData: Partial<AudioRecording>) => {
-    if (!editingRecording) return;
-
-    try {
-      const response = await fetch(`/api/audio/recordings/${editingRecording._id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updatedData),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update recording');
-      }
-
-      // Refresh the recordings list
-      await fetchRecordings();
-      setEditingRecording(null);
-      setSuccessMessage("Recording updated successfully!");
-    } catch (error) {
-      console.error('Error updating recording:', error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-      setErrorMessage(`Failed to update recording: ${errorMessage}`);
-    }
+    openEditModal(audioFile, () => {
+      fetchRecordings();
+      showSuccess("Recording Updated", "Recording updated successfully!");
+    });
   };
 
 
@@ -217,41 +194,56 @@ export default function AudioList({ admin }: AudioListProps) {
 
 
   const handleDelete = (recording: AudioRecording) => {
-    setDeletingRecording(recording);
-  };
+    const audioFile = {
+      id: recording._id,
+      title: recording.title,
+      description: recording.description,
+      lecturerName: recording.lecturerName,
+      category: recording.category || { name: 'Unknown' },
+      duration: recording.duration,
+      fileSize: recording.fileSize,
+      url: '', // Not needed for delete
+      visibility: 'public' as const,
+      sharedWith: [],
+      createdBy: { _id: '', name: '', email: '' },
+      broadcastReady: false,
+      broadcastUsageCount: 0,
+      createdAt: recording.uploadDate,
+      isFavorite: false,
+      isOwner: true,
+      type: recording.type,
+      year: recording.year,
+      tags: recording.tags
+    };
 
-  const confirmDelete = async () => {
-    if (!deletingRecording) return;
-    
-    setIsDeleting(true);
-    try {
-      const response = await fetch(`/api/audio/recordings/${deletingRecording._id}`, {
-        method: 'DELETE',
-      });
+    openDeleteModal(audioFile, async () => {
+      try {
+        const response = await fetch(`/api/audio/recordings/${recording._id}`, {
+          method: 'DELETE',
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete recording');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to delete recording');
+        }
+
+        // Refresh the recordings list
+        await fetchRecordings();
+        
+        // Stop playing if this recording was playing
+        if (playingRecording?._id === recording._id) {
+          setPlayingRecording(null);
+          setAudioUrl("");
+        }
+        
+        showSuccess("Recording Deleted", "Recording deleted successfully!");
+      } catch (error) {
+        console.error('Error deleting recording:', error);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+        showError("Delete Failed", `Failed to delete recording: ${errorMessage}`);
+        throw error; // Re-throw to let modal handle it
       }
-
-      // Refresh the recordings list
-      await fetchRecordings();
-      
-      // Stop playing if this recording was playing
-      if (playingRecording?._id === deletingRecording._id) {
-        setPlayingRecording(null);
-        setAudioUrl("");
-      }
-      
-      setDeletingRecording(null);
-      setSuccessMessage("Recording deleted successfully!");
-    } catch (error) {
-      console.error('Error deleting recording:', error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-      setErrorMessage(`Failed to delete recording: ${errorMessage}`);
-    } finally {
-      setIsDeleting(false);
-    }
+    });
   };
 
   // Filter and sort recordings
@@ -334,7 +326,7 @@ export default function AudioList({ admin }: AudioListProps) {
               <option value="quran">📖 Quran</option>
               <option value="hadith">📜 Hadith</option>
               <option value="tafsir">📝 Tafsir</option>
-              <option value="dua">🤲 Dua</option>
+              <option value="adhkar">🤲 Adhkar</option>
             </select>
           </div>
           
@@ -378,60 +370,6 @@ export default function AudioList({ admin }: AudioListProps) {
           onEnded={handleAudioEnded}
           onError={handleAudioError}
         />
-      )}
-
-      {/* Error Message */}
-      {errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-medium text-red-800">Error</h4>
-                <p className="text-red-700 text-sm mt-1">{errorMessage}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setErrorMessage("")}
-              className="text-red-400 hover:text-red-600 transition-colors p-1"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Success Message */}
-      {successMessage && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-medium text-emerald-800">Success</h4>
-                <p className="text-emerald-700 text-sm mt-1">{successMessage}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setSuccessMessage("")}
-              className="text-emerald-400 hover:text-emerald-600 transition-colors p-1"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
       )}
 
       {/* Recordings List */}
@@ -560,27 +498,6 @@ export default function AudioList({ admin }: AudioListProps) {
             </div>
           ))}
         </div>
-      )}
-
-      {/* Edit Modal */}
-      {editingRecording && (
-        <EditRecordingModal
-          recording={editingRecording}
-          isOpen={!!editingRecording}
-          onClose={() => setEditingRecording(null)}
-          onSave={handleSaveEdit}
-        />
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {deletingRecording && (
-        <DeleteConfirmModal
-          isOpen={!!deletingRecording}
-          recordingTitle={deletingRecording.title}
-          onConfirm={confirmDelete}
-          onCancel={() => setDeletingRecording(null)}
-          isDeleting={isDeleting}
-        />
       )}
     </div>
   );

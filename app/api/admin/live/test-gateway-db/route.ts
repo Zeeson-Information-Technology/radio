@@ -19,10 +19,14 @@ export async function GET() {
       liveState: liveState ? {
         isLive: liveState.isLive,
         isMuted: liveState.isMuted,
+        mutedAt: liveState.mutedAt,
+        isMonitoring: liveState.isMonitoring,
+        currentAudioFile: liveState.currentAudioFile,
         title: liveState.title,
         lecturer: liveState.lecturer,
         startedAt: liveState.startedAt,
-        updatedAt: liveState.updatedAt
+        updatedAt: liveState.updatedAt,
+        lastActivity: liveState.lastActivity
       } : null
     });
   } catch (error) {
@@ -50,10 +54,14 @@ export async function POST(request: Request) {
       liveState = new LiveState({
         isLive: isLive || false,
         isMuted: false,
+        mutedAt: null,
+        isMonitoring: false,
+        currentAudioFile: null,
         mount: '/stream',
         title: title || 'Test Broadcast',
         lecturer: lecturer || 'Test Lecturer',
         startedAt: isLive ? new Date() : null,
+        lastActivity: new Date(),
         updatedAt: new Date()
       });
       await liveState.save();
@@ -62,6 +70,7 @@ export async function POST(request: Request) {
       liveState.title = title || 'Test Broadcast';
       liveState.lecturer = lecturer || 'Test Lecturer';
       liveState.startedAt = isLive ? new Date() : null;
+      liveState.lastActivity = new Date();
       liveState.updatedAt = new Date();
       await liveState.save();
     }
@@ -72,9 +81,13 @@ export async function POST(request: Request) {
       liveState: {
         isLive: liveState.isLive,
         isMuted: liveState.isMuted,
+        mutedAt: liveState.mutedAt,
+        isMonitoring: liveState.isMonitoring,
+        currentAudioFile: liveState.currentAudioFile,
         title: liveState.title,
         lecturer: liveState.lecturer,
-        startedAt: liveState.startedAt
+        startedAt: liveState.startedAt,
+        lastActivity: liveState.lastActivity
       }
     });
   } catch (error) {

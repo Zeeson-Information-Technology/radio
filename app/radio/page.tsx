@@ -20,27 +20,36 @@ export default async function RadioPage() {
   let liveData;
   
   try {
+    console.log('🔍 Server-side fetching live data from:', `${baseUrl}/api/live`);
     const response = await fetch(`${baseUrl}/api/live`, {
       cache: 'no-store', // Always fetch fresh data
       next: { revalidate: 0 }, // Revalidate immediately
     });
     
+    console.log('🔍 Live data response status:', response.status);
+    
     if (response.ok) {
       liveData = await response.json();
+      console.log('🔍 Live data fetched successfully:', liveData);
     } else {
+      console.error('❌ Live data fetch failed with status:', response.status);
       throw new Error('Failed to fetch live data');
     }
   } catch (error) {
-    console.error('Error fetching live data:', error);
+    console.error('❌ Error fetching live data:', error);
     // Fallback data
     liveData = {
       ok: true,
       isLive: false,
-      title: "Offline",
+      isMuted: false,
+      mutedAt: null,
+      title: null,
       lecturer: null,
       startedAt: null,
-      streamUrl: "https://example.com/stream",
+      streamUrl: process.env.STREAM_URL || "http://localhost:8080/test-stream",
+      currentAudioFile: null
     };
+    console.log('🔍 Using fallback live data:', liveData);
   }
 
   // Fetch schedule data

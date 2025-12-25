@@ -1,22 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentAdmin } from "@/lib/server-auth";
 import { connectDB } from "@/lib/db";
 import AudioRecording from "@/lib/models/AudioRecording";
 import Lecturer from "@/lib/models/Lecturer";
 import Category from "@/lib/models/Category";
 import { deleteAudioFromS3 } from "@/lib/services/s3";
+import { getCurrentAdmin } from "@/lib/server-auth";
 
 export async function GET(request: NextRequest) {
   try {
-    // Check authentication
-    const admin = await getCurrentAdmin();
-    if (!admin) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
     // Connect to database
     await connectDB();
 
@@ -30,7 +21,7 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get("sortBy") || "uploadDate";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
-    // Build query
+    // Build query - for admin management, show ALL recordings
     const query: any = {};
 
     // Search across title, lecturer name, and tags
@@ -51,6 +42,9 @@ export async function GET(request: NextRequest) {
     // Filter by status
     if (status && status !== "all") {
       query.status = status;
+    } else {
+      // Default to active recordings if no status specified
+      query.status = "active";
     }
 
     // Build sort object
@@ -82,7 +76,8 @@ export async function GET(request: NextRequest) {
       pagination: {
         currentPage: page,
         totalPages,
-        totalCount,
+        totalRecordings: totalCount,
+        recordingsPerPage: limit,
         hasNextPage,
         hasPrevPage,
         limit
@@ -91,6 +86,79 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error("Error fetching recordings:", error);
+    return NextResponse.json(
+      { success: false, message: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    // Check authentication
+    const admin = await getCurrentAdmin();
+    if (!admin) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Get update data from request body
+    const updateData = await request.json();
+    const recordingId = updateData.id;
+
+    if (!recordingId) {
+      return NextResponse.json(
+        { success: false, message: "Recording ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Connect to database
+    await connectDB();
+
+    // Find the recording
+    const recording = await AudioRecording.findById(recordingId);
+    if (!recording) {
+      return NextResponse.json(
+        { success: false, message: "Recording not found" },
+        { status: 404 }
+      );
+    }
+
+    // Check permissions (only owner or super admin can edit)
+    const canEdit = admin.role === 'super_admin' || recording.createdBy.toString() === admin._id.toString();
+    if (!canEdit) {
+      return NextResponse.json(
+        { success: false, message: "You can only edit your own recordings" },
+        { status: 403 }
+      );
+    }
+    
+    // Update the recording
+    const updatedRecording = await AudioRecording.findByIdAndUpdate(
+      recordingId,
+      {
+        title: updateData.title,
+        lecturerName: updateData.lecturerName,
+        type: updateData.type,
+        year: updateData.year,
+        description: updateData.description,
+        tags: updateData.tags,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: "Recording updated successfully",
+      recording: updatedRecording
+    });
+
+  } catch (error) {
+    console.error("Error updating recording:", error);
     return NextResponse.json(
       { success: false, message: "Internal server error" },
       { status: 500 }

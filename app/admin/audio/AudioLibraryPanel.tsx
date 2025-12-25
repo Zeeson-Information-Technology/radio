@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
 import Link from "next/link";
 import AudioUpload from "./AudioUpload";
 import AudioList from "./AudioList";
+import AudioLibraryManager from "./AudioLibraryManager";
 
 interface AudioLibraryPanelProps {
   admin: SerializedAdmin;
@@ -17,6 +18,15 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>("library");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const router = useRouter();
+
+  // Check for tab parameter in URL on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as TabType;
+    if (tabParam && ['upload', 'library', 'lecturers', 'categories'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, []);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -175,7 +185,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
             {activeTab === "library" && (
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-6">
-                  <h2 className="text-lg sm:text-2xl font-bold text-slate-800">Audio Recordings</h2>
+                  <h2 className="text-lg sm:text-2xl font-bold text-slate-800">Enhanced Audio Library</h2>
                   <button
                     onClick={() => setActiveTab("upload")}
                     className="px-4 sm:px-6 py-2 sm:py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-semibold shadow-lg text-sm sm:text-base self-start sm:self-auto"
@@ -183,7 +193,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
                     ➕ Upload New Audio
                   </button>
                 </div>
-                <AudioList admin={admin} />
+                <AudioLibraryManager admin={admin} />
               </div>
             )}
 

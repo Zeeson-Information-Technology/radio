@@ -14,7 +14,10 @@ class WebSocketHandler {
     // Attach WebSocket to HTTP server
     this.wss = new WebSocket.Server({ 
       server: server,
-      verifyClient: (info) => verifyWebSocketClient(info, port)
+      verifyClient: (info) => verifyWebSocketClient(info, port),
+      // Configure for binary data handling
+      perMessageDeflate: false,
+      maxPayload: 1024 * 1024 // 1MB max payload
     });
 
     this.wss.on('connection', this.handleConnection.bind(this));
@@ -137,24 +140,49 @@ class WebSocketHandler {
 
   handleMessage(ws, user, message) {
     try {
-      // Check if message is string (JSON control message) or binary (audio data)
-      if (typeof message === 'string' || (message instanceof Buffer && message[0] === 0x7B)) {
-        const data = JSON.parse(message.toString());
+      // Handle different message types
+      if (typeof message === 'string') {
+        // String JSON control message
+        const data = JSON.parse(message);
         this.handleControlMessage(ws, user, data);
-      } else if (message instanceof ArrayBuffer || message instanceof Buffer) {
-        // Binary audio data
-        this.handleAudioData(ws, user, message);
+      } else if (Buffer.isBuffer(message) || message instanceof ArrayBuffer) {
+        // Binary data - check if it's JSON or audio
+        const buffer = Buffer.isBuffer(message) ? message : Buffer.from(message);
+        
+        // Check first byte to determine if it's JSON
+        if (buffer.length > 0 && (buffer[0] === 0x7B || buffer[0] === 0x5B)) {
+          // Starts with '{' or '[' - likely JSON
+          try {
+            const data = JSON.parse(buffer.toString('utf8'));
+            this.handleControlMessage(ws, user, data);
+          } catch (jsonError) {
+            // If JSON parsing fails, treat as binary audio data
+            this.handleAudioData(ws, user, buffer);
+          }
+        } else {
+          // Binary audio data
+          this.handleAudioData(ws, user, buffer);
+        }
       } else {
-        console.log('⚠️ Unknown message type:', typeof message, message.constructor.name);
+        // Handle the case where typeof === 'object' but it's actually a Buffer
+        // This happens in some Node.js/WebSocket configurations
+        if (message && message.constructor && message.constructor.name === 'Buffer') {
+          // It's a Buffer disguised as an object
+          this.handleAudioData(ws, user, message);
+        } else {
+          console.log('⚠️ Unknown message type:', typeof message, message.constructor?.name);
+        }
       }
     } catch (error) {
-      console.error('❌ Error handling message:', error);
-      console.error('Message type:', typeof message);
-      console.error('Message length:', message.length);
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: 'Failed to process message'
-      }));
+      // Only log errors for string messages (control messages)
+      if (typeof message === 'string') {
+        console.error('❌ Error parsing control message:', error.message);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to process control message'
+        }));
+      }
+      // Silently ignore binary data errors
     }
   }
 
@@ -175,6 +203,7 @@ class WebSocketHandler {
           break;
           
         case 'start_stream':
+          console.log(`🎙️ Processing start_stream request from ${user.email} with config:`, data);
           this.broadcastService.startStreaming(ws, user, data);
           break;
         
@@ -185,6 +214,32 @@ class WebSocketHandler {
         case 'stop_stream':
           console.log(`🛑 Processing stop request from ${user.email}`);
           this.broadcastService.stopStreaming(ws, user);
+          break;
+
+        // New broadcast control commands
+        case 'mute_broadcast':
+          console.log(`🔇 Processing mute request from ${user.email}`);
+          this.broadcastService.muteBroadcast(ws, user);
+          break;
+
+        case 'unmute_broadcast':
+          console.log(`🔊 Processing unmute request from ${user.email}`);
+          this.broadcastService.unmuteBroadcast(ws, user);
+          break;
+
+        case 'toggle_monitor':
+          console.log(`🎧 Processing monitor toggle from ${user.email}:`, data.enabled);
+          this.broadcastService.toggleMonitor(ws, user, data.enabled);
+          break;
+
+        case 'inject_audio':
+          console.log(`🎵 Processing audio injection from ${user.email}:`, data.fileId);
+          this.broadcastService.injectAudio(ws, user, data);
+          break;
+
+        case 'stop_audio_injection':
+          console.log(`⏹️ Processing stop audio injection from ${user.email}`);
+          this.broadcastService.stopAudioInjection(ws, user);
           break;
         
         case 'ping':

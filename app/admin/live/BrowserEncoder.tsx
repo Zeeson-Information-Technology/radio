@@ -1,6 +1,20 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import AudioMonitorManager from './AudioMonitorManager';
+import AudioInjectionSystem from './AudioInjectionSystem';
+import BroadcastControlPanel from './BroadcastControlPanel';
+import BroadcastErrorHandler, { emitBroadcastError } from './BroadcastErrorHandler';
+import PerformanceMonitor from './PerformanceMonitor';
+
+// Performance utility: Debounce function
+function debounce<T extends (...args: any[]) => any>(func: T, wait: number): T {
+  let timeout: NodeJS.Timeout;
+  return ((...args: any[]) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(null, args), wait);
+  }) as T;
+}
 
 interface BrowserEncoderProps {
   onStreamStart?: () => void;
@@ -8,6 +22,7 @@ interface BrowserEncoderProps {
   onError?: (error: string) => void;
   title?: string;
   lecturer?: string;
+  admin?: any; // Add admin prop for BroadcastControlPanel
 }
 
 interface StreamConfig {
@@ -18,7 +33,7 @@ interface StreamConfig {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error';
 
-export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer }: BrowserEncoderProps) {
+export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer, admin }: BrowserEncoderProps) {
   // State management
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [audioLevel, setAudioLevel] = useState(0);
@@ -28,30 +43,251 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [isSupported, setIsSupported] = useState(true);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isFirefox, setIsFirefox] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
+  const [audioInjectionActive, setAudioInjectionActive] = useState(false);
+  const [currentAudioFile, setCurrentAudioFile] = useState<string | null>(null);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isFirstAttempt, setIsFirstAttempt] = useState(true);
   
 
   
-  // Notification flags to prevent duplicate calls
-  const hasNotifiedStartRef = useRef<boolean>(false);
-  const hasNotifiedStopRef = useRef<boolean>(false);
+  // Performance optimization: Debounce audio level updates
+  const debouncedSetAudioLevel = useCallback(
+    debounce((level: number) => {
+      setAudioLevel(level);
+    }, 50), // Update at most every 50ms
+    []
+  );
+
+  // Performance optimization: Memoized stream config
+  const streamConfig: StreamConfig = useMemo(() => ({
+    sampleRate: 44100,
+    channels: 2,
+    bitrate: 128000
+  }), []);
+
+  // Performance optimization: Cleanup function
+  const cleanupResources = useCallback(() => {
+    // Stop all audio processing
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    // Cleanup audio systems
+    if (audioMonitorRef.current) {
+      audioMonitorRef.current.cleanup();
+      audioMonitorRef.current = null;
+    }
+    
+    if (audioInjectionSystemRef.current) {
+      audioInjectionSystemRef.current.cleanup();
+      audioInjectionSystemRef.current = null;
+    }
+
+    // Clean up mixed stream resources
+    if (mixedStreamProcessorRef.current) {
+      mixedStreamProcessorRef.current.disconnect();
+      mixedStreamProcessorRef.current = null;
+    }
+
+    if (mixedStreamSourceRef.current) {
+      mixedStreamSourceRef.current.disconnect();
+      mixedStreamSourceRef.current = null;
+    }
+    
+    if (performanceMonitorRef.current) {
+      performanceMonitorRef.current.stopMonitoring();
+      performanceMonitorRef.current = null;
+    }
+    
+    // Stop media stream
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    
+    // Close WebSocket
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    
+    // Reset notification flags
+    hasNotifiedStartRef.current = false;
+    hasNotifiedStopRef.current = false;
+  }, []);
+
+  // Broadcast control handlers
+  const handleMuteToggle = useCallback(async () => {
+    try {
+      const endpoint = isMuted ? '/api/admin/broadcast/unmute' : '/api/admin/broadcast/mute';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setIsMuted(result.isMuted);
+        setMessage(result.message);
+      } else {
+        throw new Error('Failed to toggle mute');
+      }
+    } catch (error) {
+      console.error('Mute toggle error:', error);
+      setErrorMessage('Failed to toggle mute');
+    }
+  }, [isMuted]);
+
+  const handleMonitorToggle = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/broadcast/monitor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ enabled: !isMonitoring }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setIsMonitoring(result.isMonitoring);
+        setMessage(result.message);
+        
+        // Update local audio monitor
+        if (audioMonitorRef.current) {
+          if (result.isMonitoring) {
+            audioMonitorRef.current.enableMonitoring();
+          } else {
+            audioMonitorRef.current.disableMonitoring();
+          }
+        }
+      } else {
+        throw new Error('Failed to toggle monitoring');
+      }
+    } catch (error) {
+      console.error('Monitor toggle error:', error);
+      setErrorMessage('Failed to toggle monitoring');
+    }
+  }, [isMonitoring]);
+
+  const handleAudioFilePlay = useCallback(async (fileId: string, fileName: string, duration: number) => {
+    try {
+      console.log(`🎵 Starting audio playback: ${fileName} (${duration}s)`);
+      
+      const response = await fetch('/api/admin/broadcast/audio/play', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fileId, fileName, duration }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Server responded OK for audio play request');
+        
+        setAudioInjectionActive(true);
+        setCurrentAudioFile(fileName);
+        setPlaybackProgress(0);
+        setPlaybackDuration(duration);
+        setMessage(result.message);
+        
+        // Start local audio injection if available
+        if (audioInjectionSystemRef.current) {
+          console.log('🎵 AudioInjectionSystem available, getting audio URL...');
+          
+          // Get the actual audio URL from the play API
+          const playResponse = await fetch(`/api/audio/play/${fileId}`);
+          const playResult = await playResponse.json();
+          
+          if (playResponse.ok && playResult.success && playResult.data) {
+            console.log('✅ Got audio URL:', playResult.data.audioUrl);
+            
+            const audioFile = {
+              id: fileId,
+              title: fileName,
+              url: playResult.data.audioUrl,
+              duration
+            };
+            
+            console.log('🎵 Calling AudioInjectionSystem.playAudioFile...');
+            await audioInjectionSystemRef.current.playAudioFile(audioFile);
+            console.log('✅ AudioInjectionSystem.playAudioFile completed');
+          } else {
+            console.error('❌ Failed to get audio URL:', playResult);
+            throw new Error('Failed to get audio URL for injection');
+          }
+        } else {
+          console.error('❌ AudioInjectionSystem not available');
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Server error for audio play request:', response.status, errorText);
+        throw new Error('Failed to start audio playback');
+      }
+    } catch (error) {
+      console.error('❌ Audio playback error:', error);
+      setErrorMessage('Failed to start audio playback');
+    }
+  }, []);
+
+  const handleAudioStop = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/broadcast/audio/stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setAudioInjectionActive(false);
+        setCurrentAudioFile(null);
+        setPlaybackProgress(0);
+        setPlaybackDuration(0);
+        setMessage(result.message);
+        
+        // Stop local audio injection if available
+        if (audioInjectionSystemRef.current) {
+          audioInjectionSystemRef.current.stopPlayback();
+        }
+      } else {
+        throw new Error('Failed to stop audio playback');
+      }
+    } catch (error) {
+      console.error('Audio stop error:', error);
+      setErrorMessage('Failed to stop audio playback');
+    }
+  }, []);
 
   // Refs for audio processing
   const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioMonitorRef = useRef<AudioMonitorManager | null>(null);
+  const performanceMonitorRef = useRef<PerformanceMonitor | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const streamStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const hasNotifiedStartRef = useRef<boolean>(false);
+  const hasNotifiedStopRef = useRef<boolean>(false);
   
-  // Stream configuration - standard audio parameters for quality
-  const streamConfig: StreamConfig = {
-    sampleRate: 44100, // Standard CD quality sample rate
-    channels: 1,       // Mono for voice/radio
-    bitrate: 128       // Standard streaming bitrate
-  };
+  // Enhanced audio system refs
+  const audioMonitorManagerRef = useRef<AudioMonitorManager | null>(null);
+  const audioInjectionSystemRef = useRef<AudioInjectionSystem | null>(null);
+  const mixedStreamProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const mixedStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   // Check browser support and existing session on mount
   useEffect(() => {
@@ -175,10 +411,38 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       durationIntervalRef.current = null;
     }
 
+    // Clear any pending response timeout
+    if (wsRef.current && (wsRef.current as any).responseTimeout) {
+      clearTimeout((wsRef.current as any).responseTimeout);
+      (wsRef.current as any).responseTimeout = null;
+    }
+
     // Close WebSocket
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
+    }
+
+    // Dispose of enhanced audio systems
+    if (audioMonitorManagerRef.current) {
+      audioMonitorManagerRef.current.cleanup();
+      audioMonitorManagerRef.current = null;
+    }
+
+    if (audioInjectionSystemRef.current) {
+      audioInjectionSystemRef.current.cleanup();
+      audioInjectionSystemRef.current = null;
+    }
+
+    // Clean up mixed stream resources
+    if (mixedStreamProcessorRef.current) {
+      mixedStreamProcessorRef.current.disconnect();
+      mixedStreamProcessorRef.current = null;
+    }
+
+    if (mixedStreamSourceRef.current) {
+      mixedStreamSourceRef.current.disconnect();
+      mixedStreamSourceRef.current = null;
     }
 
     // Stop media stream
@@ -210,6 +474,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
     setAudioLevel(0);
     setStreamDuration(0);
+    setIsMonitoring(false);
+    setIsMuted(false);
+    setFeedbackWarning(null);
+    setAudioInjectionActive(false);
+    setCurrentAudioFile(null);
   }, []);
 
   const getAuthToken = async (): Promise<string> => {
@@ -259,6 +528,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       ws.onerror = (error) => {
         clearTimeout(timeout);
         console.error('❌ WebSocket error:', error);
+        
+        // Emit network error
+        emitBroadcastError({
+          type: 'network',
+          message: 'Failed to connect to broadcast server',
+          recoverable: true
+        });
+        
         reject(new Error('Failed to connect to broadcast server'));
       };
 
@@ -276,6 +553,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         if (connectionState === 'streaming') {
           setConnectionState('error');
           setErrorMessage('Connection lost during stream');
+          
+          // Emit gateway error
+          emitBroadcastError({
+            type: 'gateway',
+            message: 'Connection lost during stream',
+            recoverable: true
+          });
         }
       };
     });
@@ -283,6 +567,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
   const handleGatewayMessage = (data: any) => {
     console.log('📨 Gateway message:', data);
+
+    // Clear any pending response timeout when we get a message
+    if (wsRef.current && (wsRef.current as any).responseTimeout) {
+      clearTimeout((wsRef.current as any).responseTimeout);
+      (wsRef.current as any).responseTimeout = null;
+    }
 
     switch (data.type) {
       case 'ready':
@@ -370,6 +660,38 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         // Heartbeat response
         break;
 
+      // Enhanced broadcast control message handlers
+      case 'broadcast_muted':
+        setIsMuted(true);
+        setMessage('🔇 Broadcast muted - taking a break');
+        break;
+
+      case 'broadcast_unmuted':
+        setIsMuted(false);
+        setMessage('🔊 Broadcast resumed');
+        break;
+
+      case 'monitor_toggled':
+        setIsMonitoring(data.isMonitoring);
+        setMessage(`🎧 Monitor ${data.isMonitoring ? 'enabled' : 'disabled'}`);
+        break;
+
+      case 'audio_injection_started':
+        setAudioInjectionActive(true);
+        setCurrentAudioFile(data.audioFile?.title || 'Unknown');
+        setMessage(`🎵 Playing: ${data.audioFile?.title || 'Audio file'}`);
+        break;
+
+      case 'audio_injection_stopped':
+        setAudioInjectionActive(false);
+        setCurrentAudioFile(null);
+        setMessage('⏹️ Audio playback stopped');
+        break;
+
+      case 'mute_timeout_reminder':
+        setMessage('⏰ Mute reminder: Your broadcast has been muted for over 5 minutes');
+        break;
+
       default:
         console.log('Unknown message type:', data.type);
     }
@@ -448,9 +770,9 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         const inputBuffer = event.inputBuffer;
         
         // Send audio data to gateway (continuous streaming - no throttling)
+        // The dynamic audio switching will ensure we get the right source (microphone or mixed)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
-            
             const audioData = inputBuffer.getChannelData(0);
             
             // Skip only if completely empty buffer (but allow silence/quiet audio)
@@ -498,6 +820,130 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       sourceRef.current = source;
       gainNodeRef.current = gainNode;
 
+      // Initialize enhanced audio systems (Requirements 1.1, 1.2, 1.3, 3.2, 3.3, 3.4)
+      try {
+        // Initialize AudioMonitorManager
+        audioMonitorManagerRef.current = new AudioMonitorManager((frequency, amplitude) => {
+          // Feedback detection callback (Requirements 1.5)
+          setFeedbackWarning(`Audio feedback detected at ${Math.round(frequency)}Hz. Consider turning off monitoring or adjusting microphone position.`);
+          
+          // Clear warning after 5 seconds
+          setTimeout(() => {
+            setFeedbackWarning(null);
+          }, 5000);
+        });
+        
+        await audioMonitorManagerRef.current.initialize(stream);
+        
+        // Initialize AudioInjectionSystem
+        audioInjectionSystemRef.current = new AudioInjectionSystem(
+          (progress: number, duration: number) => {
+            // Update progress in UI
+            setPlaybackProgress(progress);
+            setPlaybackDuration(duration);
+            console.log(`🎵 Audio progress update: ${progress.toFixed(1)}s / ${duration.toFixed(1)}s`);
+          },
+          () => {
+            // Handle playback completion
+            setAudioInjectionActive(false);
+            setCurrentAudioFile(null);
+            setPlaybackProgress(0);
+            setPlaybackDuration(0);
+            console.log('✅ Audio playback completed');
+          },
+          (muted: boolean) => {
+            // Handle microphone mute state
+            console.log(`🎤 Microphone ${muted ? 'muted' : 'unmuted'} for audio injection`);
+          }
+        );
+        
+        await audioInjectionSystemRef.current.initialize(stream);
+
+        console.log('✅ Enhanced audio systems initialized');
+        
+        // CRITICAL FIX: Set up dynamic audio source switching
+        // When audio injection is active, we need to switch from microphone to mixed stream
+        const setupDynamicAudioSwitching = () => {
+          console.log('🔧 Setting up dynamic audio source switching...');
+          
+          // Store original processor for restoration
+          const originalProcessor = processorRef.current;
+          const originalSource = sourceRef.current;
+          
+          // Function to switch to mixed stream
+          const switchToMixedStream = () => {
+            const mixedStream = audioInjectionSystemRef.current?.getMixedStream();
+            if (!mixedStream || !audioContextRef.current || !originalProcessor) {
+              console.warn('⚠️ Mixed stream or processor not available for switching');
+              return false;
+            }
+            
+            try {
+              // Disconnect original source
+              if (originalSource && originalProcessor) {
+                originalSource.disconnect(originalProcessor);
+              }
+              
+              // Create new source from mixed stream
+              const mixedSource = audioContextRef.current.createMediaStreamSource(mixedStream);
+              
+              // Connect mixed source to the same processor
+              mixedSource.connect(originalProcessor);
+              
+              console.log('✅ Switched to mixed stream for broadcast');
+              return true;
+            } catch (error) {
+              console.error('❌ Failed to switch to mixed stream:', error);
+              return false;
+            }
+          };
+          
+          // Function to switch back to microphone
+          const switchToMicrophone = () => {
+            if (!originalSource || !originalProcessor) {
+              console.warn('⚠️ Original source not available for restoration');
+              return;
+            }
+            
+            try {
+              // Reconnect original microphone source
+              originalSource.connect(originalProcessor);
+              console.log('✅ Switched back to microphone for broadcast');
+            } catch (error) {
+              console.error('❌ Failed to switch back to microphone:', error);
+            }
+          };
+          
+          // Monitor audio injection state and switch sources accordingly
+          let wasPlaying = false;
+          const checkAudioInjectionState = () => {
+            const isPlaying = audioInjectionSystemRef.current?.isPlaying() || false;
+            
+            if (isPlaying && !wasPlaying) {
+              // Audio injection started - switch to mixed stream
+              console.log('🎵 Audio injection started - switching to mixed stream');
+              switchToMixedStream();
+            } else if (!isPlaying && wasPlaying) {
+              // Audio injection stopped - switch back to microphone
+              console.log('🎤 Audio injection stopped - switching back to microphone');
+              switchToMicrophone();
+            }
+            
+            wasPlaying = isPlaying;
+          };
+          
+          // Check state every 100ms for responsive switching
+          setInterval(checkAudioInjectionState, 100);
+        };
+        
+        // Set up dynamic switching after a short delay
+        setTimeout(setupDynamicAudioSwitching, 500);
+        
+      } catch (error) {
+        console.error('⚠️ Failed to initialize enhanced audio systems:', error);
+        // Continue without enhanced features
+      }
+
       // Return stream and actual browser configuration
       const actualConfig: StreamConfig = {
         sampleRate: actualSampleRate, // Use browser's actual rate
@@ -519,6 +965,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           '1. Click the microphone icon in the address bar\n' +
           '2. Select "Allow" for microphone access\n' +
           '3. Refresh the page and try again';
+        
+        // Emit permission error
+        emitBroadcastError({
+          type: 'permission',
+          message: 'Microphone permission denied',
+          recoverable: false
+        });
       } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
         errorMessage += 'No microphone found. Please connect a microphone and try again.';
       } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
@@ -560,6 +1013,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           
           // Setup audio processing
           processor.onaudioprocess = (event) => {
+            // The dynamic audio switching will handle source changes
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
               const inputBuffer = event.inputBuffer.getChannelData(0);
               const outputBuffer = new Int16Array(inputBuffer.length);
@@ -638,12 +1092,25 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       return;
     }
 
+    // Track retry attempts
+    const currentRetry = retryCount;
+    setRetryCount(prev => prev + 1);
+    setIsFirstAttempt(false);
+
+    // Set up timeout for the entire broadcast initialization
+    const initTimeout = setTimeout(() => {
+      console.error('❌ Broadcast initialization timeout after 15 seconds');
+      setConnectionState('error');
+      setErrorMessage(`Broadcast initialization timed out${currentRetry > 0 ? ` (attempt ${currentRetry + 1})` : ''}. Please try again.`);
+      cleanup();
+    }, 15000); // 15 second timeout
+
     try {
       setConnectionState('connecting');
       setErrorMessage('');
-      setMessage('');
+      setMessage('Initializing broadcast...');
       
-      console.log('🎬 Starting broadcast process...');
+      console.log(`🎬 Starting broadcast process... (attempt ${currentRetry + 1})`);
       
       // Reset notification flags for new broadcast session
       hasNotifiedStartRef.current = false;
@@ -652,29 +1119,54 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       // Check if this is a reconnection to existing session
       const isReconnection = errorMessage.includes('active broadcast session');
 
-      // Get authentication token
+      // Step 1: Get authentication token with timeout
       console.log('🔑 Getting authentication token...');
-      const token = await getAuthToken();
+      setMessage('Getting authentication...');
+      
+      const tokenPromise = getAuthToken();
+      const tokenTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Token request timeout')), 5000)
+      );
+      
+      const token = await Promise.race([tokenPromise, tokenTimeout]) as string;
       console.log('✅ Token received');
 
-      // Connect to gateway
+      // Step 2: Setup audio processing first (this often fails on first try)
+      console.log('🎤 Setting up audio processing...');
+      setMessage('Setting up microphone...');
+      
+      const audioPromise = setupAudioProcessing();
+      const audioTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Microphone setup timeout')), 8000)
+      );
+      
+      const { stream, actualConfig } = await Promise.race([audioPromise, audioTimeout]) as { stream: MediaStream; actualConfig: StreamConfig };
+      console.log('✅ Audio processing setup complete');
+
+      // Step 3: Connect to gateway with timeout
       console.log('🔌 Connecting to WebSocket gateway...');
-      const ws = await connectWebSocket(token);
+      setMessage('Connecting to broadcast server...');
+      
+      const wsPromise = connectWebSocket(token);
+      const wsTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000)
+      );
+      
+      const ws = await Promise.race([wsPromise, wsTimeout]) as WebSocket;
       wsRef.current = ws;
       console.log('✅ WebSocket connected');
-
-      // Setup audio processing and get actual configuration
-      console.log('🎤 Setting up audio processing...');
-      const { stream, actualConfig } = await setupAudioProcessing();
-      console.log('✅ Audio processing setup complete');
       
-      // Wait a moment for WebSocket to be fully ready
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Step 4: Wait for WebSocket to be fully ready with shorter timeout
+      setMessage('Finalizing connection...');
+      await new Promise(resolve => setTimeout(resolve, 500)); // Increased from 100ms
       console.log('✅ WebSocket ready to send messages');
 
+      // Step 5: Send appropriate message based on connection type
       if (isReconnection) {
         // For reconnection, send reconnect message with actual config
         console.log('🔄 Sending reconnect_stream message, duration:', streamDuration);
+        setMessage('Reconnecting to existing broadcast...');
+        
         ws.send(JSON.stringify({
           type: 'reconnect_stream',
           config: {
@@ -698,6 +1190,9 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         }
       } else {
         // New broadcast with actual configuration
+        console.log('📤 Sending start_stream message...');
+        setMessage('Starting new broadcast...');
+        
         const startMessage = {
           type: 'start_stream',
           config: {
@@ -707,22 +1202,68 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           }
         };
         
-        console.log('📤 Sending start_stream message:', startMessage);
         ws.send(JSON.stringify(startMessage));
         console.log('✅ start_stream message sent');
         
         startDurationTimer();
       }
 
+      // Clear the timeout since we completed successfully
+      clearTimeout(initTimeout);
+      
+      // Set a temporary message while waiting for gateway response
+      setMessage('Waiting for broadcast server confirmation...');
+      
+      // Set up a backup timeout in case gateway doesn't respond
+      const gatewayResponseTimeout = setTimeout(() => {
+        if (connectionState === 'connecting') {
+          console.warn('⚠️ Gateway response timeout - assuming success');
+          setConnectionState('streaming');
+          setMessage('🎙️ Broadcast started! (Gateway response delayed)');
+        }
+      }, 3000); // 3 second timeout for gateway response
+      
+      // Store timeout reference to clear it when we get a proper response
+      (ws as any).responseTimeout = gatewayResponseTimeout;
+
+      // Reset retry count on successful initialization
+      setRetryCount(0);
+
     } catch (error) {
-      console.error('❌ Start broadcast error:', error);
+      // Clear the timeout on error
+      clearTimeout(initTimeout);
+      
+      console.error(`❌ Start broadcast error (attempt ${currentRetry + 1}):`, error);
       console.error('Error details:', {
         name: error instanceof Error ? error.name : 'Unknown',
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
+      
       setConnectionState('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to start broadcast');
+      
+      // Provide more specific error messages
+      let errorMsg = 'Failed to start broadcast';
+      if (error instanceof Error) {
+        if (error.message.includes('Token request timeout')) {
+          errorMsg = 'Authentication timeout. Please check your connection and try again.';
+        } else if (error.message.includes('Microphone setup timeout')) {
+          errorMsg = 'Microphone setup failed. Please check permissions and try again.';
+        } else if (error.message.includes('WebSocket connection timeout')) {
+          errorMsg = 'Could not connect to broadcast server. Please check your connection.';
+        } else if (error.message.includes('timeout')) {
+          errorMsg = 'Connection timeout. Please try again.';
+        } else {
+          errorMsg = error.message;
+        }
+      }
+      
+      // Add retry suggestion for first attempts
+      if (currentRetry === 0) {
+        errorMsg += ' This sometimes happens on the first attempt - please try again.';
+      }
+      
+      setErrorMessage(errorMsg);
       cleanup();
     }
   };
@@ -784,10 +1325,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     }
   };
 
+  // Enhanced audio control functions
   const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
   };
 
   const getStatusColor = (): string => {
@@ -823,6 +1371,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   }
 
   return (
+    <>
     <div className="bg-gradient-to-br from-white via-slate-50 to-emerald-50/30 rounded-3xl shadow-2xl border-2 border-emerald-100/50 overflow-hidden">
       {/* Premium Header - Unified Emerald Theme */}
       <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 px-8 py-6 text-center relative overflow-hidden">
@@ -856,30 +1405,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               
               {/* Monitoring Toggle - Unified Theme */}
               <button
-                onClick={() => {
-                  if (sourceRef.current && audioContextRef.current) {
-                    if (isMonitoring) {
-                      try { 
-                        sourceRef.current.disconnect(audioContextRef.current.destination); 
-                      } catch (e) {
-                        console.log('Already disconnected from destination');
-                      }
-                    } else {
-                      try {
-                        sourceRef.current.connect(audioContextRef.current.destination);
-                      } catch (e) {
-                        console.log('Could not connect to destination');
-                      }
-                    }
-                  }
-                  setIsMonitoring(!isMonitoring);
-                }}
+                onClick={handleMonitorToggle}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg ${
                   isMonitoring 
                     ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-amber-200' 
                     : 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 shadow-slate-200 hover:from-slate-200 hover:to-slate-300'
                 }`}
-                title={isMonitoring ? "You can hear yourself (may cause echo)" : "Click to hear yourself while broadcasting"}
+                title={isMonitoring 
+                  ? "You can hear yourself (may cause echo/feedback)" 
+                  : "Click to hear yourself while broadcasting"
+                }
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728" />
@@ -950,6 +1485,21 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <p className="text-emerald-800 font-medium">{message.replace('Browser streaming', 'Streaming')}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Feedback Warning - Enhanced Audio Feature */}
+          {feedbackWarning && (
+            <div className="mb-8 p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl shadow-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <div>
+                  <p className="text-amber-800 font-semibold">Audio Feedback Detected</p>
+                  <p className="text-amber-700 text-sm">{feedbackWarning}</p>
+                </div>
               </div>
             </div>
           )}
@@ -1093,5 +1643,36 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         </div>
       </div>
     </div>
+
+    {/* Enhanced Broadcast Control Panel - Always shown for admins for audio library access */}
+    {admin && (
+      <BroadcastControlPanel
+        admin={admin}
+        isStreaming={connectionState === 'streaming'}
+        isMuted={isMuted}
+        isMonitoring={isMonitoring}
+        audioInjectionActive={audioInjectionActive}
+        currentAudioFile={currentAudioFile}
+        feedbackWarning={feedbackWarning}
+        playbackProgress={playbackProgress}
+        playbackDuration={playbackDuration}
+        onMuteToggle={handleMuteToggle}
+        onMonitorToggle={handleMonitorToggle}
+        onAudioFilePlay={handleAudioFilePlay}
+        onAudioStop={handleAudioStop}
+      />
+    )}
+
+    {/* Broadcast Error Handler */}
+    <BroadcastErrorHandler
+      onRetry={startBroadcast}
+      onReset={() => {
+        cleanup();
+        setConnectionState('disconnected');
+        setErrorMessage('');
+        setMessage('Session reset. You can start a new broadcast.');
+      }}
+    />
+  </>
   );
 }

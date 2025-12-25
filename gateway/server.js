@@ -5,6 +5,9 @@
  * Receives browser audio via WebSocket → Encodes to MP3 → Streams to Icecast
  */
 
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -14,12 +17,15 @@ const config = require('./config');
 const DatabaseService = require('./services/DatabaseService');
 const BroadcastService = require('./services/BroadcastService');
 const AudioConversionService = require('./services/AudioConversionService');
+const AudioStateManager = require('./services/AudioStateManager');
 const WebSocketHandler = require('./websocket/WebSocketHandler');
 
 // Import routes
 const createHealthRoute = require('./routes/health');
 const createEmergencyRoute = require('./routes/emergency');
 const createConversionRoutes = require('./routes/conversion');
+const createBroadcastRoutes = require('./routes/broadcast');
+const testStreamRoute = require('./routes/testStream');
 
 class BroadcastGateway {
   constructor() {
@@ -28,7 +34,8 @@ class BroadcastGateway {
     
     // Initialize services
     this.databaseService = new DatabaseService();
-    this.broadcastService = new BroadcastService(this.databaseService);
+    this.audioStateManager = new AudioStateManager(this.databaseService);
+    this.broadcastService = new BroadcastService(this.databaseService, this.audioStateManager);
     this.conversionService = new AudioConversionService(this.databaseService);
     
     this.init();
@@ -38,6 +45,9 @@ class BroadcastGateway {
     try {
       // Connect to database
       await this.databaseService.connect();
+      
+      // Start audio state manager cache cleanup
+      this.audioStateManager.startCacheCleanup();
       
       // Setup Express app
       this.setupExpressApp();
@@ -73,6 +83,14 @@ class BroadcastGateway {
     this.app.use(createHealthRoute(this.broadcastService));
     this.app.use(createEmergencyRoute(this.broadcastService));
     this.app.use(createConversionRoutes(this.conversionService));
+    this.app.use(createBroadcastRoutes(this.broadcastService));
+    
+    // Set up test stream route with live streaming capability
+    const testStreamRoute = require('./routes/testStream');
+    this.app.use(testStreamRoute);
+    
+    // Connect BroadcastService with test stream for live audio
+    this.broadcastService.setTestStreamRoute(testStreamRoute);
 
     console.log('🌐 Express app configured with all routes');
   }
@@ -97,6 +115,11 @@ class BroadcastGateway {
         console.log('🛑 Stopping active stream...');
         // Note: We don't have user context here, but we can force stop
         this.broadcastService.stopStreaming(null, { role: 'super_admin' });
+      }
+      
+      // Dispose of audio state manager
+      if (this.audioStateManager) {
+        this.audioStateManager.dispose();
       }
       
       if (this.server) {

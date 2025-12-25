@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/server-auth";
 import { connectDB } from "@/lib/db";
 import AudioRecording from "@/lib/models/AudioRecording";
+import AdminUser from "@/lib/models/AdminUser";
 import Lecturer from "@/lib/models/Lecturer";
 import Category from "@/lib/models/Category";
 import Tag from "@/lib/models/Tag";
@@ -9,6 +10,21 @@ import { S3Service, extractAudioMetadata } from "@/lib/services/s3";
 import AudioConversionService from "@/lib/services/audioConversion";
 import { getSupportedMimeTypes, getFormatByExtension, SUPPORTED_AUDIO_FORMATS } from "@/lib/utils/audio-formats";
 import jwt from "jsonwebtoken";
+
+/**
+ * Get default visibility based on user role (Requirements 8.1, 8.2)
+ */
+function getDefaultVisibility(role: string): string {
+  switch (role) {
+    case 'super_admin':
+    case 'admin':
+      return 'public'; // Admins default to public for station-wide access
+    case 'presenter':
+      return 'private'; // Presenters default to private for personal use
+    default:
+      return 'private';
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,6 +58,11 @@ export async function POST(request: NextRequest) {
     const type = formData.get("type") as string;
     const tags = formData.get("tags") as string;
     const year = formData.get("year") as string;
+    
+    // New access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
+    const visibility = formData.get("visibility") as string || getDefaultVisibility(admin.role);
+    const sharedWith = formData.get("sharedWith") as string; // JSON array of presenter IDs
+    const broadcastReady = formData.get("broadcastReady") === "true";
 
     // Validate required fields
     if (!file || !title || !lecturerName) {
@@ -125,7 +146,7 @@ export async function POST(request: NextRequest) {
       hadith: "Hadith",
       tafsir: "Tafsir",
       lecture: "Islamic Lectures",
-      dua: "Dua & Dhikr",
+      adhkar: "Adhkar & Dhikr",
       qa: "Islamic Lectures" // Q&A sessions are categorized as lectures
     };
     const defaultName = defaultCategoryNames[type as keyof typeof defaultCategoryNames] || "Islamic Lectures";
@@ -140,6 +161,25 @@ export async function POST(request: NextRequest) {
 
     // Process tags
     const processedTags = tags ? await Tag.processTags(tags, admin._id) : [];
+
+    // Process shared presenters for shared visibility (Requirements 7.2)
+    let sharedWithIds: string[] = [];
+    if (visibility === 'shared' && sharedWith) {
+      try {
+        const presenterIds = JSON.parse(sharedWith);
+        if (Array.isArray(presenterIds)) {
+          // Validate presenter IDs exist and are active
+          const validPresenters = await AdminUser.find({
+            _id: { $in: presenterIds },
+            role: { $in: ['presenter', 'admin', 'super_admin'] },
+            status: 'active'
+          }).select('_id');
+          sharedWithIds = validPresenters.map(p => p._id.toString());
+        }
+      } catch (error) {
+        console.warn('Invalid sharedWith format:', error);
+      }
+    }
 
     // Create audio recording with conversion support
     const audioRecording = new AudioRecording({
@@ -168,6 +208,11 @@ export async function POST(request: NextRequest) {
       playbackFormat: needsConversion ? 'mp3' : detectedFormat,
       conversionStatus: needsConversion ? 'pending' : 'ready',
       playbackUrl: needsConversion ? undefined : uploadResult.storageUrl,
+      
+      // Access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
+      visibility: visibility as 'private' | 'shared' | 'public',
+      sharedWith: sharedWithIds,
+      broadcastReady: broadcastReady,
       
       accessLevel: "public",
       createdBy: admin._id,
@@ -256,7 +301,10 @@ export async function POST(request: NextRequest) {
       conversionStatus: audioRecording.conversionStatus,
       needsConversion,
       duration: audioMetadata.duration,
-      fileSize: uploadResult.fileSize
+      fileSize: uploadResult.fileSize,
+      visibility: audioRecording.visibility,
+      sharedWith: audioRecording.sharedWith,
+      broadcastReady: audioRecording.broadcastReady
     });
 
   } catch (error) {

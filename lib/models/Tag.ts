@@ -240,7 +240,7 @@ TagSchema.statics.updateRelatedTags = async function(this: any): Promise<void> {
 // Static method to create default tags
 TagSchema.statics.createDefaults = async function(this: any, createdBy: mongoose.Types.ObjectId): Promise<void> {
   const defaultTags = [
-    "quran", "hadith", "tafsir", "lecture", "dua", "dhikr",
+    "quran", "hadith", "tafsir", "lecture", "adhkar", "dhikr",
     "fiqh", "aqeedah", "seerah", "ramadan", "hajj", "prayer",
     "marriage", "family", "youth", "women", "children", "arabic",
     "english", "urdu", "friday", "eid", "charity", "patience"

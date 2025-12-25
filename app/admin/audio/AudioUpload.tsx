@@ -61,14 +61,39 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [lecturerName, setLecturerName] = useState("");
-  const [type, setType] = useState<"quran" | "hadith" | "tafsir" | "lecture" | "dua" | "qa">("lecture");
-
-
+  const [type, setType] = useState<"quran" | "hadith" | "tafsir" | "lecture" | "adhkar" | "qa">("lecture");
   const [tags, setTags] = useState("");
   const [year, setYear] = useState("");
   
+  // New access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
+  const [visibility, setVisibility] = useState<'private' | 'shared' | 'public'>(
+    admin.role === 'super_admin' || admin.role === 'admin' ? 'public' : 'private'
+  );
+  const [selectedPresenters, setSelectedPresenters] = useState<string[]>([]);
+  const [broadcastReady, setBroadcastReady] = useState(true);
+  const [availablePresenters, setAvailablePresenters] = useState<Array<{_id: string; name: string; email: string}>>([]);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  // Load available presenters for sharing (Requirements 7.2)
+  useEffect(() => {
+    const loadPresenters = async () => {
+      try {
+        const response = await fetch('/api/admin/presenters');
+        if (response.ok) {
+          const data = await response.json();
+          setAvailablePresenters(data.presenters || []);
+        }
+      } catch (error) {
+        console.error('Failed to load presenters:', error);
+      }
+    };
+
+    if (visibility === 'shared') {
+      loadPresenters();
+    }
+  }, [visibility]);
 
 
 
@@ -210,6 +235,13 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
       formData.append("tags", tags.trim());
       if (year.trim()) {
         formData.append("year", year.trim());
+      }
+
+      // Add new access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
+      formData.append("visibility", visibility);
+      formData.append("broadcastReady", broadcastReady.toString());
+      if (visibility === 'shared' && selectedPresenters.length > 0) {
+        formData.append("sharedWith", JSON.stringify(selectedPresenters));
       }
 
       const xhr = new XMLHttpRequest();
@@ -430,7 +462,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                   <option value="quran">📖 Quran Recitation</option>
                   <option value="hadith">📜 Hadith</option>
                   <option value="tafsir">📝 Tafsir</option>
-                  <option value="dua">🤲 Dua</option>
+                  <option value="adhkar">🤲 Adhkar</option>
                 </select>
               </div>
 
@@ -479,6 +511,133 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                 <p className="text-xs text-slate-500 mt-1">
                   Separate multiple tags with commas
                 </p>
+              </div>
+
+              {/* Access Control Section (Requirements 7.1, 7.2, 8.1, 8.2) */}
+              <div className="md:col-span-2 border-t border-slate-200 pt-6">
+                <h4 className="text-lg font-semibold text-slate-800 mb-4">Access & Sharing</h4>
+                
+                {/* Visibility */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-3">
+                    Who can access this audio?
+                  </label>
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="visibility"
+                        value="private"
+                        checked={visibility === 'private'}
+                        onChange={(e) => setVisibility(e.target.value as 'private')}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-800">🔒 Private</div>
+                        <div className="text-sm text-slate-600">Only you can access this audio</div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="visibility"
+                        value="shared"
+                        checked={visibility === 'shared'}
+                        onChange={(e) => setVisibility(e.target.value as 'shared')}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-800">🤝 Shared</div>
+                        <div className="text-sm text-slate-600">Share with specific presenters</div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="visibility"
+                        value="public"
+                        checked={visibility === 'public'}
+                        onChange={(e) => setVisibility(e.target.value as 'public')}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-800">🌍 Public</div>
+                        <div className="text-sm text-slate-600">Available to all presenters</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Presenter Selection (only for shared visibility) */}
+                {visibility === 'shared' && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-3">
+                      Select presenters to share with:
+                    </label>
+                    <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                      {availablePresenters.length === 0 ? (
+                        <div className="p-4 text-center text-slate-500 text-sm">
+                          No other presenters available
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {availablePresenters.map((presenter) => (
+                            <label
+                              key={presenter._id}
+                              className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedPresenters.includes(presenter._id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedPresenters(prev => [...prev, presenter._id]);
+                                  } else {
+                                    setSelectedPresenters(prev => prev.filter(id => id !== presenter._id));
+                                  }
+                                }}
+                                className="text-emerald-600 focus:ring-emerald-500 rounded"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-slate-800 text-sm truncate">
+                                  {presenter.name}
+                                </div>
+                                <div className="text-xs text-slate-600 truncate">
+                                  {presenter.email}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedPresenters.length > 0 && (
+                      <div className="mt-2 text-sm text-slate-600">
+                        Selected: {selectedPresenters.length} presenter{selectedPresenters.length !== 1 ? 's' : ''}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Broadcast Ready */}
+                <div>
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={broadcastReady}
+                      onChange={(e) => setBroadcastReady(e.target.checked)}
+                      className="text-emerald-600 focus:ring-emerald-500 rounded"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-800">📡 Broadcast Ready</div>
+                      <div className="text-sm text-slate-600">
+                        Mark this audio as suitable for live broadcast injection
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
             </div>
           </div>
@@ -570,7 +729,13 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
             </button>
             <button
               type="submit"
-              disabled={uploadStatus === "uploading" || !selectedFile || !title.trim() || !lecturerName.trim()}
+              disabled={
+                uploadStatus === "uploading" || 
+                !selectedFile || 
+                !title.trim() || 
+                !lecturerName.trim() ||
+                (visibility === 'shared' && selectedPresenters.length === 0)
+              }
               className="flex-1 px-4 sm:px-6 py-2.5 sm:py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
             >
               {uploadStatus === "uploading" ? (

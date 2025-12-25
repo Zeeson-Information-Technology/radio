@@ -62,7 +62,7 @@ describe('Feature: recorded-audio-library - AudioRecording Model Properties', ()
           fc.record({
             title: fc.string({ minLength: 1, maxLength: 200 }),
             lecturerName: fc.string({ minLength: 1, maxLength: 100 }),
-            type: fc.constantFrom('quran', 'hadith', 'tafsir', 'lecture', 'dua'),
+            type: fc.constantFrom('quran', 'hadith', 'tafsir', 'lecture', 'adhkar'),
             fileName: fc.string({ minLength: 1, maxLength: 255 }),
             originalFileName: fc.string({ minLength: 1, maxLength: 255 }),
             fileSize: fc.integer({ min: 1, max: 500 * 1024 * 1024 }), // Up to 500MB
@@ -108,7 +108,7 @@ describe('Feature: recorded-audio-library - AudioRecording Model Properties', ()
     it('should validate content type constraints', async () => {
       await fc.assert(
         fc.asyncProperty(
-          fc.constantFrom('quran', 'hadith', 'tafsir', 'lecture', 'dua'),
+          fc.constantFrom('quran', 'hadith', 'tafsir', 'lecture', 'adhkar'),
           async (contentType) => {
             const recording = new AudioRecording({
               title: 'Test Recording',
@@ -130,7 +130,7 @@ describe('Feature: recorded-audio-library - AudioRecording Model Properties', ()
             await recording.save();
             
             // Property: Content type must be one of the valid Islamic content types
-            expect(['quran', 'hadith', 'tafsir', 'lecture', 'dua']).toContain(recording.type);
+            expect(['quran', 'hadith', 'tafsir', 'lecture', 'adhkar']).toContain(recording.type);
           }
         ),
         { numRuns: 100 }

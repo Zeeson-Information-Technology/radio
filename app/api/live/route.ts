@@ -20,10 +20,14 @@ export async function GET() {
       liveState = new LiveState({
         isLive: false,
         isMuted: false,
+        mutedAt: null,
         mount: "/stream",
         title: undefined,
         lecturer: undefined,
         startedAt: null,
+        isMonitoring: false,
+        currentAudioFile: null,
+        lastActivity: new Date(),
         updatedAt: new Date()
       });
       await liveState.save();
@@ -32,15 +36,22 @@ export async function GET() {
     // Get stream URL from environment
     const streamUrl = process.env.STREAM_URL || "http://98.93.42.61:8000/stream";
 
-    // Return public live state
+    // Return public live state with enhanced broadcast control information
     const response = {
       ok: true,
       isLive: liveState.isLive || false,
       isMuted: liveState.isMuted || false,
+      mutedAt: liveState.mutedAt ? liveState.mutedAt.toISOString() : null,
       title: liveState.title || null,
       lecturer: liveState.lecturer || null,
       startedAt: liveState.startedAt ? liveState.startedAt.toISOString() : null,
       streamUrl,
+      // Enhanced broadcast control fields (for listeners)
+      currentAudioFile: liveState.currentAudioFile ? {
+        title: liveState.currentAudioFile.title,
+        duration: liveState.currentAudioFile.duration,
+        startedAt: liveState.currentAudioFile.startedAt.toISOString()
+      } : null,
     };
     
     // Create response with cache headers for faster subsequent requests
@@ -59,10 +70,12 @@ export async function GET() {
         ok: true, // Changed to true so UI doesn't break
         isLive: false,
         isMuted: false,
+        mutedAt: null,
         title: null,
         lecturer: null,
         startedAt: null,
         streamUrl: process.env.STREAM_URL || "http://98.93.42.61:8000/stream",
+        currentAudioFile: null,
       }
     );
     

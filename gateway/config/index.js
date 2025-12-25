@@ -7,6 +7,8 @@ module.exports = {
   PORT: process.env.GATEWAY_PORT || 8080,
   JWT_SECRET: process.env.JWT_SECRET || 'hujfidreukj78jrekjhrehre8hfd',
   NEXTJS_URL: process.env.NEXTJS_URL || 'http://localhost:3000',
+  NEXTJS_API_URL: process.env.NEXTJS_API_URL || 'http://localhost:3000',
+  INTERNAL_API_KEY: process.env.INTERNAL_API_KEY || 'internal-gateway-key',
   
   // Icecast Configuration
   ICECAST_HOST: process.env.ICECAST_HOST || 'localhost',
