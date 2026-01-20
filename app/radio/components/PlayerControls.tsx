@@ -55,19 +55,6 @@ export default function PlayerControls({
             </button>
           </div>
 
-          {/* Offline Tips */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div className="text-center">
-                <p className="text-blue-800 font-medium text-sm mb-1">💡 Tip: If you were listening and the broadcast stopped, the presenter may have paused or ended the session</p>
-                <p className="text-blue-700 text-xs">Check our schedule for upcoming live programs</p>
-              </div>
-            </div>
-          </div>
-
           <p className="text-slate-500 text-sm mt-4 text-center">The radio stream is only available during live broadcasts.</p>
           <p className="text-slate-400 text-xs mt-1 text-center">✨ Real-time updates • Click "Check Now" for manual refresh</p>
         </div>
@@ -138,7 +125,7 @@ export default function PlayerControls({
           {liveData.isMuted 
             ? "Stream available but currently muted" 
             : liveData.currentAudioFile 
-              ? "Pre-recorded content playing" 
+              ? "Al-Manhaj Radio Live Stream" 
               : "High Quality Audio Stream"
           }
         </p>

@@ -74,15 +74,18 @@ export async function POST(request: NextRequest) {
 
     // Send real-time notification to listeners (Requirements 5.3)
     try {
-      await fetch(`${process.env.NEXTAUTH_URL}/api/live/notify`, {
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      await fetch(`${baseUrl}/api/live/notify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`
         },
         body: JSON.stringify({
-          type: 'audio_playback_start',
-          currentAudioFile: audioFileInfo,
-          timestamp: new Date(),
+          action: 'broadcast_event',
+          type: 'audio_playback_started',
+          audioFile: audioFileInfo,
+          timestamp: new Date().toISOString(),
           sessionId: liveState._id.toString()
         })
       });

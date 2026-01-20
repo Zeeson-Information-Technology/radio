@@ -76,6 +76,9 @@ export async function POST(request: NextRequest) {
     const sharedWith = formData.get("sharedWith") as string; // JSON array of presenter IDs
     const broadcastReady = formData.get("broadcastReady") === "true";
 
+    // Log upload attempt for debugging
+    console.log(`🎵 Upload attempt: ${file?.name} (${file?.size ? (file.size / (1024 * 1024)).toFixed(1) : 'unknown'}MB)`);
+
     // Validate required fields
     if (!file || !title || !lecturerName) {
       return NextResponse.json(
@@ -142,8 +145,23 @@ export async function POST(request: NextRequest) {
     const needsConversion = AudioConversionService.needsConversion(detectedFormat);
     
     // Upload original file to S3
+    console.log(`🎵 Starting S3 upload for: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
     const originalKey = s3Service.generateOriginalKey(file.name);
-    const uploadResult = await s3Service.uploadFromFile(file, originalKey, file.type);
+    
+    let uploadResult;
+    try {
+      uploadResult = await s3Service.uploadFromFile(file, originalKey, file.type);
+      console.log(`🎵 S3 upload completed successfully: ${originalKey}`);
+    } catch (error) {
+      console.error(`🎵 S3 upload failed for ${file.name}:`, error);
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: "Failed to upload file to storage. Please try again or contact support if the issue persists." 
+        },
+        { status: 500 }
+      );
+    }
     
     // Extract audio metadata (duration, etc.)
     console.log("🎵 Extracting audio metadata for:", file.name);

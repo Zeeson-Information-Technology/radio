@@ -4,4 +4,4 @@
  */
 
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mong
+import { MongoMemoryServer } from 'mongodb-memory-server';

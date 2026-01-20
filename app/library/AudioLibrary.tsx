@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import AudioPlayer from "./AudioPlayer";
 import AudioCard from "./AudioCard";
+import { useConversionNotifications } from "@/lib/hooks/useConversionNotifications";
 
 interface AudioRecording {
   _id: string;
@@ -51,6 +52,15 @@ export default function AudioLibrary() {
   // Audio player state
   const [currentlyPlaying, setCurrentlyPlaying] = useState<AudioRecording | null>(null);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+
+  // Conversion notifications (less frequent for public library)
+  useConversionNotifications({
+    onConversionComplete: () => {
+      // Refresh the public library when conversion completes
+      fetchRecordings();
+    },
+    enabled: true
+  });
 
   useEffect(() => {
     fetchRecordings();

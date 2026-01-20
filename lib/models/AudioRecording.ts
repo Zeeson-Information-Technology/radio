@@ -166,7 +166,7 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
       required: true,
       enum: [
         // Common formats
-        "mp3", "wav", "m4a", "aac", "ogg",
+        "mp3", "mpeg", "wav", "m4a", "aac", "ogg",
         // Additional formats for comprehensive support
         "amr", "amr-wb", "flac", "webm", "wma", "3gp", "3gp2"
       ],

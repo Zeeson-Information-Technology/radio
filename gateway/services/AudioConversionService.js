@@ -1,5 +1,6 @@
 /**
- * Audio Conversion Service for AMR to MP3 conversion
+ * Audio Conversion Service for converting various audio formats to MP3
+ * Supports: AMR, AMR-WB, MPEG, 3GP, 3GP2, WMA
  */
 
 const fs = require('fs');
@@ -116,7 +117,7 @@ class AudioConversionService {
   async processConversion(job) {
     console.log(`🔄 Processing conversion job ${job.jobId}`);
     
-    const { recordId, originalKey } = job;
+    const { recordId, originalKey, format } = job;
     const recording = await this.databaseService.AudioRecording.findById(recordId);
     
     if (!recording) {
@@ -128,13 +129,14 @@ class AudioConversionService {
       conversionStatus: 'processing'
     });
 
-    // Generate file paths
-    const tempInputPath = path.join(config.CONVERSION_TEMP_DIR, `${job.jobId}_input.amr`);
+    // Generate file paths based on format
+    const inputExtension = this.getInputExtension(format);
+    const tempInputPath = path.join(config.CONVERSION_TEMP_DIR, `${job.jobId}_input.${inputExtension}`);
     const tempOutputPath = path.join(config.CONVERSION_TEMP_DIR, `${job.jobId}_output.mp3`);
     const playbackKey = `playback/${recordId}.mp3`;
 
     try {
-      // Download AMR file from S3
+      // Download original file from S3
       job.progress = 10;
       console.log(`📥 Downloading ${originalKey} from S3...`);
       
@@ -146,9 +148,9 @@ class AudioConversionService {
       await fs.promises.writeFile(tempInputPath, s3Object.Body);
       job.progress = 30;
 
-      // Convert AMR to MP3 using FFmpeg
-      console.log(`🎵 Converting AMR to MP3...`);
-      await this.convertAudioFile(tempInputPath, tempOutputPath);
+      // Convert to MP3 using FFmpeg
+      console.log(`🎵 Converting ${format.toUpperCase()} to MP3...`);
+      await this.convertAudioFile(tempInputPath, tempOutputPath, format);
       job.progress = 70;
 
       // Upload MP3 to S3
@@ -179,6 +181,9 @@ class AudioConversionService {
 
       console.log(`✅ Conversion job ${job.jobId} completed successfully`);
 
+      // Notify Next.js app about conversion completion
+      await this.notifyConversionComplete(recordId, recording.title);
+
     } finally {
       // Clean up temp files
       try {
@@ -190,20 +195,95 @@ class AudioConversionService {
     }
   }
 
-  async convertAudioFile(inputPath, outputPath) {
+  async notifyConversionComplete(recordId, title) {
+    try {
+      console.log(`📢 Starting notification process for ${title}`);
+      console.log(`📢 Target URL: ${config.NEXTJS_API_URL}/api/notifications/conversion-complete`);
+      console.log(`📢 API Key: ${config.INTERNAL_API_KEY ? 'SET' : 'NOT SET'}`);
+      
+      // Send notification to Next.js app
+      const notificationPayload = {
+        type: 'conversion_complete',
+        recordId: recordId,
+        title: title,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log(`📢 Payload:`, notificationPayload);
+
+      // Make HTTP request to Next.js app notification endpoint
+      const response = await fetch(`${config.NEXTJS_API_URL}/api/notifications/conversion-complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.INTERNAL_API_KEY}`
+        },
+        body: JSON.stringify(notificationPayload)
+      });
+
+      console.log(`📢 Response status: ${response.status}`);
+      
+      if (response.ok) {
+        const responseData = await response.json();
+        console.log(`📢 Response data:`, responseData);
+        console.log(`✅ Successfully notified Next.js app about conversion completion for ${title}`);
+      } else {
+        const errorText = await response.text();
+        console.warn(`⚠️ Failed to notify Next.js app: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to send conversion notification:', error.message);
+      console.warn('⚠️ Error details:', error);
+      // Don't throw error - conversion was successful, notification is just a bonus
+    }
+  }
+
+  getInputExtension(format) {
+    const extensionMap = {
+      'amr': 'amr',
+      'amr-wb': 'amr',
+      'mpeg': 'mpeg',
+      '3gp': '3gp',
+      '3gp2': '3gp2',
+      'wma': 'wma'
+    };
+    return extensionMap[format.toLowerCase()] || format.toLowerCase();
+  }
+
+  async convertAudioFile(inputPath, outputPath, format = 'amr') {
     return new Promise((resolve, reject) => {
-      ffmpeg(inputPath)
+      const ffmpegCommand = ffmpeg(inputPath)
         .audioCodec('libmp3lame')
-        .audioBitrate(64) // 64kbps for voice recordings
-        .audioChannels(1) // Mono
-        .audioFrequency(22050) // 22kHz sample rate
-        .output(outputPath)
+        .output(outputPath);
+
+      // Apply format-specific settings
+      if (format === 'amr' || format === 'amr-wb') {
+        // Voice recordings - optimize for speech
+        ffmpegCommand
+          .audioBitrate(64) // 64kbps for voice recordings
+          .audioChannels(1) // Mono
+          .audioFrequency(22050); // 22kHz sample rate
+      } else if (format === 'mpeg') {
+        // MPEG files - maintain reasonable quality
+        ffmpegCommand
+          .audioBitrate(128) // 128kbps for music/lectures
+          .audioChannels(2) // Stereo
+          .audioFrequency(44100); // 44kHz sample rate
+      } else {
+        // Default settings for other formats
+        ffmpegCommand
+          .audioBitrate(96) // 96kbps balanced quality
+          .audioChannels(2) // Stereo
+          .audioFrequency(44100); // 44kHz sample rate
+      }
+
+      ffmpegCommand
         .on('end', () => {
-          console.log('🎵 FFmpeg conversion completed');
+          console.log(`🎵 FFmpeg conversion completed: ${format.toUpperCase()} to MP3`);
           resolve();
         })
         .on('error', (error) => {
-          console.error('❌ FFmpeg conversion failed:', error);
+          console.error(`❌ FFmpeg conversion failed (${format.toUpperCase()} to MP3):`, error);
           reject(error);
         })
         .run();

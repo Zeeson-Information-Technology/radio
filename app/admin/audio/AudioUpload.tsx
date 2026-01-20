@@ -5,6 +5,7 @@ import { SerializedAdmin } from "@/lib/types/admin";
 import { getSupportedMimeTypes, SUPPORTED_AUDIO_FORMATS, getFormatByExtension } from "@/lib/utils/audio-formats";
 import SupportedFormats from "./SupportedFormats";
 import CircularProgress from "./CircularProgress";
+import LecturerComboBox from "./LecturerComboBox";
 
 interface AudioUploadProps {
   admin: SerializedAdmin;
@@ -56,6 +57,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   const [currentStage, setCurrentStage] = useState<UploadStage>({ name: "preparing", progress: 0, description: "Preparing upload..." });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
   
   // Form data
   const [title, setTitle] = useState("");
@@ -94,6 +96,30 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
       loadPresenters();
     }
   }, [visibility]);
+
+  // Global drag leave handler to reset drag state when leaving window
+  useEffect(() => {
+    const handleGlobalDragLeave = (e: DragEvent) => {
+      // If dragging outside the window, reset drag state
+      if (e.clientX === 0 && e.clientY === 0) {
+        setIsDragOver(false);
+      }
+    };
+
+    const handleGlobalDragEnd = () => {
+      setIsDragOver(false);
+    };
+
+    document.addEventListener('dragleave', handleGlobalDragLeave);
+    document.addEventListener('dragend', handleGlobalDragEnd);
+    document.addEventListener('drop', handleGlobalDragEnd);
+
+    return () => {
+      document.removeEventListener('dragleave', handleGlobalDragLeave);
+      document.removeEventListener('dragend', handleGlobalDragEnd);
+      document.removeEventListener('drop', handleGlobalDragEnd);
+    };
+  }, []);
 
 
 
@@ -159,21 +185,28 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragOver(true);
   }, []);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragOver(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Simple approach: reset drag state immediately
+    // The dragEnter will re-enable it if still dragging
+    setIsDragOver(false);
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragOver(false);
 
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
@@ -195,6 +228,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
     setCurrentStage({ name: "preparing", progress: 0, description: "Preparing upload..." });
     setError("");
     setMessage("");
+    setIsDragOver(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -295,11 +329,16 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                 
                 setTimeout(() => {
                   setUploadStatus("success");
-                  setMessage("Audio uploaded successfully!");
+                  // Show different messages based on conversion status
+                  if (response.needsConversion) {
+                    setMessage("Audio uploaded successfully! Converting to MP3 for web playback. Refresh the Audio Library page in a few moments to see the converted file.");
+                  } else {
+                    setMessage("Audio uploaded successfully!");
+                  }
                   setTimeout(() => {
                     resetForm();
                     onUploadSuccess();
-                  }, 2000);
+                  }, response.needsConversion ? 4000 : 2000); // Longer delay for conversion message
                 }, 500);
               } else {
                 setUploadStatus("error");
@@ -358,12 +397,22 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
               onDragEnter={handleDragEnter}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-emerald-400 transition-colors cursor-pointer"
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer ${
+                isDragOver 
+                  ? 'border-emerald-500 bg-emerald-50 shadow-lg scale-[1.02]' 
+                  : 'border-slate-300 hover:border-emerald-400'
+              }`}
               onClick={() => fileInputRef.current?.click()}
             >
-              <div className="text-6xl mb-4">🎵</div>
-              <p className="text-lg font-medium text-slate-700 mb-2">
-                Drop your audio file here or click to browse
+              <div className={`text-6xl mb-4 transition-all duration-200 ${
+                isDragOver ? 'scale-110' : ''
+              }`}>
+                {isDragOver ? '📥' : '🎵'}
+              </div>
+              <p className={`text-lg font-medium mb-2 transition-colors duration-200 ${
+                isDragOver ? 'text-emerald-700' : 'text-slate-700'
+              }`}>
+                {isDragOver ? 'Drop your audio file here!' : 'Drop your audio file here or click to browse'}
               </p>
               <p className="text-sm text-slate-500 mb-4">
                 Supported formats: {supportedExtensions.join(", ")}
@@ -436,13 +485,12 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   Speaker/Lecturer *
                 </label>
-                <input
-                  type="text"
+                <LecturerComboBox
                   value={lecturerName}
-                  onChange={(e) => setLecturerName(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  placeholder="Enter speaker name"
+                  onChange={setLecturerName}
+                  placeholder="Select or enter speaker name"
                   required
+                  className=""
                 />
               </div>
 

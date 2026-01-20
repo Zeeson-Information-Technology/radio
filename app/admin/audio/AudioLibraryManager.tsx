@@ -5,6 +5,9 @@ import { SerializedAdmin } from "@/lib/types/admin";
 import AudioPlayer from "../../library/AudioPlayer";
 import { useAudioModals } from "@/lib/hooks/useAudioModals";
 import { useToast } from "@/lib/contexts/ToastContext";
+import { useConversionNotifications } from "@/lib/hooks/useConversionNotifications";
+import ConversionStatusButton from "./ConversionStatusButton";
+import { getSessionTracker } from "@/lib/utils/SessionTracker";
 
 interface AudioFile {
   id: string;
@@ -31,6 +34,11 @@ interface AudioFile {
   createdAt: string;
   isFavorite: boolean;
   isOwner: boolean;
+  // Add conversion status fields
+  conversionStatus: 'pending' | 'processing' | 'ready' | 'completed' | 'failed';
+  conversionError?: string;
+  isConverting: boolean;
+  isPlayable: boolean;
 }
 
 interface AudioLibraryManagerProps {
@@ -47,10 +55,23 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showBroadcastReady, setShowBroadcastReady] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [sectionCounts, setSectionCounts] = useState({
+    all: 0,
+    my: 0,
+    shared: 0,
+    station: 0
+  });
+  
+  // Conversion status checking state (Requirements 1.3, 1.4, 3.1, 3.2, 4.2)
+  const [convertingFiles, setConvertingFiles] = useState<AudioFile[]>([]);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   
   // Audio player state
   const [currentlyPlaying, setCurrentlyPlaying] = useState<AudioFile | null>(null);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+  
+  // Session tracker for uploaded files
+  const sessionTracker = getSessionTracker();
   
   // Audio modals
   const { openEditModal, openDeleteModal } = useAudioModals({
@@ -60,10 +81,43 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
 
   // Toast notifications
   const { showSuccess, showError, showWarning } = useToast();
+
+  // Conversion notifications
+  useConversionNotifications({
+    onConversionComplete: () => {
+      // Refresh the audio list when conversion completes
+      loadAudioFiles();
+    },
+    enabled: true
+  });
   
   // Modal states - removed (now handled globally)
   // const [editModalFile, setEditModalFile] = useState<AudioFile | null>(null);
   // const [deleteModalFile, setDeleteModalFile] = useState<AudioFile | null>(null);
+
+  // Load section counts
+  const loadSectionCounts = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        ...(searchQuery && { search: searchQuery }),
+        ...(selectedCategory && { category: selectedCategory }),
+        ...(showBroadcastReady && { broadcastReady: 'true' })
+      });
+
+      const response = await fetch(`/api/admin/audio/counts?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+        setSectionCounts(data.counts || {
+          all: 0,
+          my: 0,
+          shared: 0,
+          station: 0
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load section counts:', error);
+    }
+  }, [searchQuery, selectedCategory, showBroadcastReady]);
 
   // Load audio files based on current section and filters
   const loadAudioFiles = useCallback(async () => {
@@ -83,6 +137,12 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
         const data = await response.json();
         setAudioFiles(data.files || []);
         setTotalCount(data.totalCount || 0);
+        
+        // Update converting files list (Requirements 1.3, 3.1)
+        const converting = (data.files || []).filter((file: AudioFile) => 
+          ['pending', 'processing'].includes(file.conversionStatus)
+        );
+        setConvertingFiles(converting);
       }
     } catch (error) {
       console.error('Failed to load audio files:', error);
@@ -94,7 +154,91 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
   // Load files when section or filters change
   useEffect(() => {
     loadAudioFiles();
-  }, [loadAudioFiles]);
+    loadSectionCounts();
+  }, [loadAudioFiles, loadSectionCounts]);
+
+  // Check conversion status method (Requirements 1.3, 1.4, 3.2, 4.2)
+  const checkConversionStatus = useCallback(async () => {
+    if (isCheckingStatus) return; // Prevent multiple simultaneous calls
+    
+    setIsCheckingStatus(true);
+    try {
+      // Get session files for priority checking (Requirement 4.2)
+      const sessionFiles = sessionTracker.getFiles();
+      
+      const response = await fetch('/api/admin/conversion-status', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Update file status in current list (Requirement 3.2)
+        if (data.updates && data.updates.length > 0) {
+          let hasStatusChanges = false;
+          
+          setAudioFiles(currentFiles => 
+            currentFiles.map(file => {
+              const update = data.updates.find((u: any) => u.recordId === file.id);
+              if (update) {
+                const newStatus = update.conversionStatus;
+                const wasConverting = file.isConverting;
+                const nowReady = ['ready', 'completed'].includes(newStatus);
+                
+                if (wasConverting && nowReady) {
+                  hasStatusChanges = true;
+                }
+                
+                return {
+                  ...file,
+                  conversionStatus: newStatus,
+                  isConverting: ['pending', 'processing'].includes(newStatus),
+                  isPlayable: update.isPlayable || nowReady
+                };
+              }
+              return file;
+            })
+          );
+          
+          // If any files completed conversion, refresh the entire list to get updated data
+          if (hasStatusChanges) {
+            setTimeout(() => {
+              loadAudioFiles();
+              loadSectionCounts();
+            }, 1000);
+          }
+          
+          // Update converting files list - only files still converting
+          const stillConverting = data.updates.filter((file: any) => 
+            ['pending', 'processing'].includes(file.conversionStatus)
+          );
+          setConvertingFiles(stillConverting);
+          
+          // Show success notification if files completed (Requirement 3.5)
+          const completedCount = data.updates.filter((file: any) => 
+            ['ready', 'completed'].includes(file.conversionStatus)
+          ).length;
+          
+          if (completedCount > 0) {
+            showSuccess(
+              'Conversion Complete', 
+              `${completedCount} file${completedCount !== 1 ? 's' : ''} finished converting and ${completedCount !== 1 ? 'are' : 'is'} now ready to play!`
+            );
+          }
+        }
+      } else {
+        throw new Error('Failed to check conversion status');
+      }
+    } catch (error) {
+      console.error('Failed to check conversion status:', error);
+      showError('Status Check Failed', 'Unable to check conversion status. Please try again.');
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  }, [isCheckingStatus, sessionTracker, showSuccess, showError, loadAudioFiles, loadSectionCounts]);
 
   // Format duration helper
   const formatDuration = (seconds: number): string => {
@@ -155,6 +299,8 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
         // Remove from local state
         setAudioFiles(files => files.filter(f => f.id !== file.id));
         setTotalCount(count => count - 1);
+        // Refresh section counts
+        loadSectionCounts();
         showSuccess('Audio Deleted', 'Audio file deleted successfully.');
       } else {
         const data = await response.json();
@@ -181,20 +327,16 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
             : f
         )
       );
+      // Refresh section counts in case visibility changed
+      loadSectionCounts();
     });
   };
 
   const getSectionCounts = () => {
-    // This would ideally come from the API, but for now we'll show the current count
-    return {
-      all: totalCount,
-      my: activeSection === 'my' ? totalCount : 0,
-      shared: activeSection === 'shared' ? totalCount : 0,
-      station: activeSection === 'station' ? totalCount : 0
-    };
+    return sectionCounts;
   };
 
-  const sectionCounts = getSectionCounts();
+  const sectionCountsDisplay = getSectionCounts();
 
   return (
     <div className="space-y-6">
@@ -209,7 +351,7 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
                 : 'text-slate-600 hover:text-emerald-600 hover:bg-emerald-25'
             }`}
           >
-            📚 All Audio ({sectionCounts.all})
+            📚 All Audio ({sectionCountsDisplay.all})
           </button>
           
           <button
@@ -220,7 +362,7 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
                 : 'text-slate-600 hover:text-emerald-600 hover:bg-emerald-25'
             }`}
           >
-            🏢 Station Library ({sectionCounts.station})
+            🏢 Station Library ({sectionCountsDisplay.station})
           </button>
           
           <button
@@ -231,7 +373,7 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
                 : 'text-slate-600 hover:text-emerald-600 hover:bg-emerald-25'
             }`}
           >
-            👤 My Audio ({sectionCounts.my})
+            👤 My Audio ({sectionCountsDisplay.my})
           </button>
           
           <button
@@ -242,7 +384,7 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
                 : 'text-slate-600 hover:text-emerald-600 hover:bg-emerald-25'
             }`}
           >
-            🤝 Shared with Me ({sectionCounts.shared})
+            🤝 Shared with Me ({sectionCountsDisplay.shared})
           </button>
         </div>
       </div>
@@ -288,7 +430,10 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
           
           {/* Refresh Button */}
           <button
-            onClick={loadAudioFiles}
+            onClick={() => {
+              loadAudioFiles();
+              loadSectionCounts();
+            }}
             disabled={isLoading}
             className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >
@@ -296,6 +441,13 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
           </button>
         </div>
       </div>
+
+      {/* Conversion Status Button (Requirements 1.1, 1.2, 1.5, 3.3, 3.4) */}
+      <ConversionStatusButton
+        convertingFiles={convertingFiles}
+        onStatusCheck={checkConversionStatus}
+        isLoading={isCheckingStatus}
+      />
 
       {/* Audio Files Grid */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200">
@@ -344,6 +496,19 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
                           📡 Broadcast Ready
                         </span>
                       )}
+                      
+                      {/* Conversion Status Badge */}
+                      {file.isConverting && (
+                        <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded-full animate-pulse">
+                          🔄 Converting...
+                        </span>
+                      )}
+                      
+                      {file.conversionStatus === 'failed' && (
+                        <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full">
+                          ❌ Conversion Failed
+                        </span>
+                      )}
                     </div>
                     
                     <div className="flex items-center gap-4 text-sm text-slate-600">
@@ -367,14 +532,17 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
                     {/* Play Button */}
                     <button
                       onClick={() => handlePlayAudio(file)}
+                      disabled={!file.isPlayable}
                       className={`p-2 rounded-lg transition-colors ${
-                        currentlyPlaying?.id === file.id
+                        !file.isPlayable
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : currentlyPlaying?.id === file.id
                           ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
                           : 'bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-600'
                       }`}
-                      title="Play audio"
+                      title={!file.isPlayable ? 'Audio is still converting' : 'Play audio'}
                     >
-                      {currentlyPlaying?.id === file.id ? '⏸️' : '▶️'}
+                      {!file.isPlayable ? '⏳' : currentlyPlaying?.id === file.id ? '⏸️' : '▶️'}
                     </button>
                     
                     {/* Edit Button (owner or super admin only) */}

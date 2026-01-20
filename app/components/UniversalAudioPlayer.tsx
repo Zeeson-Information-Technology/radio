@@ -11,6 +11,7 @@ interface AudioPlayerProps {
   onEnded?: () => void;
   onError?: (error: string) => void;
   className?: string;
+  autoPlay?: boolean;
 }
 
 interface FormatInfo {
@@ -28,7 +29,8 @@ export default function UniversalAudioPlayer({
   originalFormat,
   onEnded, 
   onError,
-  className = ""
+  className = "",
+  autoPlay = false
 }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -74,6 +76,12 @@ export default function UniversalAudioPlayer({
         return {
           canPlay: true,
           browserSupport: 'good',
+        };
+      case 'mpeg':
+        return {
+          canPlay: true,
+          browserSupport: 'excellent',
+          recommendation: 'MPEG files are automatically converted to MP3 for web playback'
         };
       case 'amr':
       case 'amr-nb':
@@ -234,8 +242,20 @@ export default function UniversalAudioPlayer({
       onError?.(errorMessage);
     };
 
-    const handleCanPlay = () => {
+    const handleCanPlay = async () => {
       setIsLoading(false);
+      
+      // Auto-play if requested and format is supported
+      if (autoPlay && formatInfo.canPlay && audio) {
+        try {
+          await audio.play();
+          setIsPlaying(true);
+        } catch (error) {
+          console.error("🎵 Auto-play failed:", error);
+          // Auto-play failed (likely due to browser policy), but don't show error
+          // User can still manually click play
+        }
+      }
     };
 
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);

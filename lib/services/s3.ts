@@ -99,25 +99,77 @@ export class S3Service {
     contentType: string,
     originalName?: string
   ): Promise<UploadResult> {
+    // Safely encode filename for Content-Disposition header
+    const getContentDisposition = (filename?: string): string | undefined => {
+      if (!filename) return undefined;
+      
+      try {
+        // Remove or replace problematic characters
+        let sanitizedFilename = filename
+          .replace(/["\\\r\n\t]/g, '') // Remove quotes, backslashes, and control characters
+          .replace(/[^\x20-\x7E]/g, '_') // Replace non-ASCII characters with underscore
+          .replace(/\s+/g, '_') // Replace spaces with underscores
+          .replace(/[<>:"|?*]/g, '_') // Replace Windows-invalid filename characters
+          .replace(/_{2,}/g, '_') // Replace multiple consecutive underscores with single underscore
+          .trim()
+          .substring(0, 100); // Limit length to prevent header size issues
+        
+        // Remove leading/trailing underscores and dots
+        sanitizedFilename = sanitizedFilename.replace(/^[_.]+|[_.]+$/g, '');
+        
+        if (!sanitizedFilename || sanitizedFilename.length === 0) return undefined;
+        
+        // Use RFC 6266 format for better compatibility
+        return `inline; filename="${sanitizedFilename}"`;
+      } catch (error) {
+        console.warn('Failed to create Content-Disposition header:', error);
+        return undefined; // Skip the header if there's any issue
+      }
+    };
+
+    // Safely encode metadata values (S3 metadata must be ASCII)
+    const getSafeMetadataValue = (value?: string): string => {
+      if (!value) return "unknown";
+      
+      try {
+        // S3 metadata values must be ASCII - replace non-ASCII characters
+        return value
+          .replace(/[^\x20-\x7E]/g, '_') // Replace non-ASCII characters with underscore
+          .replace(/["\\\r\n\t]/g, '') // Remove quotes, backslashes, and control characters
+          .replace(/\s+/g, '_') // Replace spaces with underscores
+          .replace(/_{2,}/g, '_') // Replace multiple consecutive underscores with single underscore
+          .trim()
+          .substring(0, 200) // Limit length for metadata
+          .replace(/^[_.]+|[_.]+$/g, '') || "unknown"; // Remove leading/trailing underscores
+      } catch (error) {
+        console.warn('Failed to sanitize metadata value:', error);
+        return "unknown";
+      }
+    };
+
     const uploadParams = {
       Bucket: BUCKET_NAME,
       Key: storageKey,
       Body: buffer,
       ContentType: contentType,
-      ContentDisposition: originalName ? `inline; filename="${originalName}"` : undefined,
+      ContentDisposition: getContentDisposition(originalName),
       CacheControl: "max-age=31536000", // 1 year cache
       Metadata: {
-        originalName: originalName || "unknown",
+        originalName: getSafeMetadataValue(originalName),
         uploadedAt: new Date().toISOString(),
       },
     };
 
     try {
+      console.log(`🎵 S3 Upload: Starting upload for ${storageKey} (${buffer.length} bytes)`);
+      
       const command = new PutObjectCommand(uploadParams);
       await s3Client.send(command);
 
       const storageUrl = `https://${BUCKET_NAME}.s3.amazonaws.com/${storageKey}`;
       const cdnUrl = `${CDN_URL}/${storageKey}`;
+
+      console.log(`🎵 S3 Upload: Successfully uploaded ${storageKey}`);
 
       return {
         storageKey,
@@ -127,6 +179,13 @@ export class S3Service {
       };
     } catch (error) {
       console.error("S3 upload error:", error);
+      console.error("Upload params:", {
+        Bucket: BUCKET_NAME,
+        Key: storageKey,
+        ContentType: contentType,
+        ContentDisposition: uploadParams.ContentDisposition,
+        BufferSize: buffer.length
+      });
       throw new Error("Failed to upload file to S3");
     }
   }

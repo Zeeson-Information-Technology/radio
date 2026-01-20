@@ -5,6 +5,7 @@ import { SerializedAdmin } from "@/lib/types/admin";
 import UniversalAudioPlayer from "../../components/UniversalAudioPlayer";
 import { useAudioModals } from "@/lib/hooks/useAudioModals";
 import { useToast } from "@/lib/contexts/ToastContext";
+import { useConversionNotifications } from "@/lib/hooks/useConversionNotifications";
 
 interface AudioListProps {
   admin: SerializedAdmin;
@@ -50,6 +51,15 @@ export default function AudioList({ admin }: AudioListProps) {
   // Use global modal system
   const { openEditModal, openDeleteModal } = useAudioModals();
   const { showSuccess, showError } = useToast();
+
+  // Conversion notifications
+  useConversionNotifications({
+    onConversionComplete: () => {
+      // Refresh the recordings list when conversion completes
+      fetchRecordings();
+    },
+    enabled: true
+  });
 
   useEffect(() => {
     fetchRecordings();
@@ -369,6 +379,7 @@ export default function AudioList({ admin }: AudioListProps) {
           originalFormat={playingRecording.originalFormat}
           onEnded={handleAudioEnded}
           onError={handleAudioError}
+          autoPlay={true}
         />
       )}
 

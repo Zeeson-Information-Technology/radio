@@ -46,14 +46,11 @@ export default function StatusBanners({ liveData, formatStartTime }: StatusBanne
             </svg>
             <div className="text-center">
               <p className="text-purple-800 font-semibold">
-                🎵 Now Playing: {liveData.currentAudioFile.title}
+                {liveData.currentAudioFile.isPaused ? '⏸️ Paused: ' : '🎵 Now Playing: '}{liveData.currentAudioFile.title}
               </p>
-              <p className="text-purple-700 text-sm mt-1">
-                Pre-recorded audio • Duration: {Math.floor(liveData.currentAudioFile.duration / 60)}:{(liveData.currentAudioFile.duration % 60).toString().padStart(2, '0')}
-              </p>
-              {liveData.currentAudioFile.startedAt && (
-                <p className="text-purple-600 text-xs mt-2">
-                  Started {formatStartTime(liveData.currentAudioFile.startedAt)}
+              {liveData.currentAudioFile.isPaused && (
+                <p className="text-amber-600 text-sm mt-1 font-medium">
+                  Audio Paused
                 </p>
               )}
             </div>

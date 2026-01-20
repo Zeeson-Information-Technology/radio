@@ -21,10 +21,12 @@ function createConversionRoutes(conversionService) {
         });
       }
 
-      if (format !== 'amr') {
+      // Validate supported formats for conversion
+      const supportedFormats = ['amr', 'amr-wb', '3gp', '3gp2', 'wma', 'mpeg'];
+      if (!supportedFormats.includes(format.toLowerCase())) {
         return res.status(400).json({
           success: false,
-          error: 'Only AMR format is supported for conversion',
+          error: `Format '${format}' is not supported for conversion. Supported formats: ${supportedFormats.join(', ')}`,
           code: 'INVALID_FORMAT'
         });
       }

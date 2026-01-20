@@ -11,6 +11,8 @@ export interface LiveData {
     title: string;
     duration: number;
     startedAt: string;
+    isPaused?: boolean;
+    currentTime?: number;
   } | null;
 }
 

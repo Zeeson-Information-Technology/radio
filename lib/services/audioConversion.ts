@@ -246,7 +246,7 @@ export class AudioConversionService {
    * Check if a format needs conversion
    */
   static needsConversion(format: string): boolean {
-    const needsConversionFormats = ['amr', 'amr-wb', '3gp', '3gp2', 'wma'];
+    const needsConversionFormats = ['amr', 'amr-wb', '3gp', '3gp2', 'wma', 'mpeg'];
     return needsConversionFormats.includes(format.toLowerCase());
   }
 

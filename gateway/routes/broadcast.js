@@ -170,6 +170,155 @@ function createBroadcastRoutes(broadcastService) {
     }
   });
 
+  /**
+   * Pause audio file endpoint
+   */
+  router.post('/api/broadcast/audio/pause', async (req, res) => {
+    try {
+      const { userId, action } = req.body;
+      
+      // Get current broadcast
+      const currentBroadcast = broadcastService.getCurrentBroadcast();
+      if (!currentBroadcast) {
+        return res.status(404).json({ error: 'No active broadcast session' });
+      }
+
+      // Validate user permission
+      if (currentBroadcast.user.userId !== userId) {
+        return res.status(403).json({ error: 'Permission denied' });
+      }
+
+      // Pause audio injection
+      await broadcastService.pauseAudioInjection(currentBroadcast.ws, currentBroadcast.user);
+      
+      res.json({
+        success: true,
+        message: 'Audio playback paused successfully',
+        action: 'pause',
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error('Audio pause error:', error);
+      res.status(500).json({ error: 'Failed to pause audio playback' });
+    }
+  });
+
+  /**
+   * Resume audio file endpoint
+   */
+  router.post('/api/broadcast/audio/resume', async (req, res) => {
+    try {
+      const { userId, action } = req.body;
+      
+      // Get current broadcast
+      const currentBroadcast = broadcastService.getCurrentBroadcast();
+      if (!currentBroadcast) {
+        return res.status(404).json({ error: 'No active broadcast session' });
+      }
+
+      // Validate user permission
+      if (currentBroadcast.user.userId !== userId) {
+        return res.status(403).json({ error: 'Permission denied' });
+      }
+
+      // Resume audio injection
+      await broadcastService.resumeAudioInjection(currentBroadcast.ws, currentBroadcast.user);
+      
+      res.json({
+        success: true,
+        message: 'Audio playback resumed successfully',
+        action: 'resume',
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error('Audio resume error:', error);
+      res.status(500).json({ error: 'Failed to resume audio playback' });
+    }
+  });
+
+  /**
+   * Seek audio file endpoint
+   */
+  router.post('/api/broadcast/audio/seek', async (req, res) => {
+    try {
+      const { userId, action, time } = req.body;
+      
+      if (typeof time !== 'number' || time < 0) {
+        return res.status(400).json({ error: 'Invalid time parameter' });
+      }
+
+      // Get current broadcast
+      const currentBroadcast = broadcastService.getCurrentBroadcast();
+      if (!currentBroadcast) {
+        return res.status(404).json({ error: 'No active broadcast session' });
+      }
+
+      // Validate user permission
+      if (currentBroadcast.user.userId !== userId) {
+        return res.status(403).json({ error: 'Permission denied' });
+      }
+
+      // Seek audio injection
+      await broadcastService.seekAudioInjection(currentBroadcast.ws, currentBroadcast.user, time);
+      
+      res.json({
+        success: true,
+        message: `Audio seeked to ${Math.floor(time)}s`,
+        action: 'seek',
+        time: time,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error('Audio seek error:', error);
+      res.status(500).json({ error: 'Failed to seek audio playback' });
+    }
+  });
+
+  /**
+   * Skip audio file endpoint
+   */
+  router.post('/api/broadcast/audio/skip', async (req, res) => {
+    try {
+      const { userId, action, seconds } = req.body;
+      
+      if (typeof seconds !== 'number') {
+        return res.status(400).json({ error: 'Invalid seconds parameter' });
+      }
+
+      // Get current broadcast
+      const currentBroadcast = broadcastService.getCurrentBroadcast();
+      if (!currentBroadcast) {
+        return res.status(404).json({ error: 'No active broadcast session' });
+      }
+
+      // Validate user permission
+      if (currentBroadcast.user.userId !== userId) {
+        return res.status(403).json({ error: 'Permission denied' });
+      }
+
+      // Skip audio injection
+      await broadcastService.skipAudioInjection(currentBroadcast.ws, currentBroadcast.user, seconds);
+      
+      const direction = seconds > 0 ? 'forward' : 'backward';
+      const absSeconds = Math.abs(seconds);
+      
+      res.json({
+        success: true,
+        message: `Skipped ${direction} ${absSeconds}s`,
+        action: 'skip',
+        seconds: seconds,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error('Audio skip error:', error);
+      res.status(500).json({ error: 'Failed to skip audio playback' });
+    }
+  });
+
   return router;
 }
 

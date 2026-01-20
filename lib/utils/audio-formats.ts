@@ -22,6 +22,15 @@ export const SUPPORTED_AUDIO_FORMATS: Record<string, AudioFormatInfo> = {
     browserSupport: 'excellent'
   },
   
+  mpeg: {
+    extension: 'mpeg',
+    mimeTypes: ['audio/mpeg', 'audio/x-mpeg'],
+    description: 'MPEG Audio',
+    quality: 'lossy',
+    commonUse: 'MPEG audio files (same as MP3)',
+    browserSupport: 'excellent'
+  },
+  
   wav: {
     extension: 'wav',
     mimeTypes: ['audio/wav', 'audio/x-wav', 'audio/wave'],
@@ -137,6 +146,9 @@ export function getSupportedMimeTypes(): string[] {
  * Get format info by file extension
  */
 export function getFormatByExtension(extension: string): AudioFormatInfo | null {
+  if (!extension || typeof extension !== 'string') {
+    return null;
+  }
   const normalizedExt = extension.toLowerCase().replace('.', '');
   return SUPPORTED_AUDIO_FORMATS[normalizedExt] || null;
 }
@@ -145,6 +157,9 @@ export function getFormatByExtension(extension: string): AudioFormatInfo | null 
  * Get format info by MIME type
  */
 export function getFormatByMimeType(mimeType: string): AudioFormatInfo | null {
+  if (!mimeType || typeof mimeType !== 'string') {
+    return null;
+  }
   for (const format of Object.values(SUPPORTED_AUDIO_FORMATS)) {
     if (format.mimeTypes.includes(mimeType.toLowerCase())) {
       return format;

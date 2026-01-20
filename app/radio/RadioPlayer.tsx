@@ -150,6 +150,44 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                   currentAudioFile: null
                 }));
                 break;
+
+              case 'audio_playback_pause':
+                console.log('📡 Received audio playback pause notification');
+                setLiveData(prev => ({
+                  ...prev,
+                  currentAudioFile: prev.currentAudioFile ? {
+                    ...prev.currentAudioFile,
+                    isPaused: true
+                  } : null
+                }));
+                break;
+
+              case 'audio_playback_resume':
+                console.log('📡 Received audio playback resume notification');
+                setLiveData(prev => ({
+                  ...prev,
+                  currentAudioFile: prev.currentAudioFile ? {
+                    ...prev.currentAudioFile,
+                    isPaused: false
+                  } : null
+                }));
+                break;
+
+              case 'audio_playback_seek':
+                console.log('📡 Received audio playback seek notification');
+                setLiveData(prev => ({
+                  ...prev,
+                  currentAudioFile: prev.currentAudioFile ? {
+                    ...prev.currentAudioFile,
+                    currentTime: data.currentTime || 0
+                  } : null
+                }));
+                break;
+
+              case 'audio_playback_skip':
+                console.log('📡 Received audio playback skip notification');
+                // Skip events don't need to update state as they're handled by seek
+                break;
                 
               case 'connected':
                 console.log('📡 Connected to live updates');

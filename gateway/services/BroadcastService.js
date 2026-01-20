@@ -68,7 +68,20 @@ class BroadcastService {
       isMuted: false,
       title: streamConfig.title || 'Live Lecture',
       lecturer: user.name || user.email,
-      startedAt: new Date()
+      startedAt: new Date(),
+      currentAudioFile: null  // Clear any existing audio file state
+    });
+
+    // Notify all listeners that broadcast has started
+    await this.notifyListeners({
+      type: 'broadcast_start',
+      message: 'Live broadcast has started',
+      isLive: true,
+      isMuted: false,
+      title: streamConfig.title || 'Live Lecture',
+      lecturer: user.name || user.email,
+      startedAt: new Date().toISOString(),
+      streamUrl: process.env.STREAM_URL || 'http://localhost:8080/test-stream'
     });
 
     this.startFFmpeg(ws, user, audioConfig);
@@ -112,7 +125,8 @@ class BroadcastService {
         isMuted: false,
         title: streamConfig.title || liveState.title || 'Live Lecture',
         lecturer: user.name || user.email,
-        startedAt: liveState.startedAt
+        startedAt: liveState.startedAt,
+        currentAudioFile: null  // Clear any existing audio file state on reconnection
       });
 
       this.startFFmpeg(ws, user, audioConfig);
@@ -149,7 +163,18 @@ class BroadcastService {
         '-ac', audioConfig.channels.toString(),
         '-i', 'pipe:0',
         
-        // Audio encoding for optimal voice quality
+        // LOW LATENCY OPTIMIZATION: Minimize all buffering and delays
+        '-flush_packets', '1',                    // Flush packets immediately
+        '-fflags', '+genpts+igndts+flush_packets', // Enhanced flags for low latency
+        '-avoid_negative_ts', 'make_zero',        // Handle timestamp issues
+        '-max_delay', '0',                        // Minimize muxing delay
+        '-muxdelay', '0',                         // No mux delay
+        '-muxpreload', '0',                       // No preload buffer
+        '-thread_queue_size', '1',                // Minimal thread queue
+        '-probesize', '32',                       // Minimal probe size
+        '-analyzeduration', '0',                  // No analysis delay
+        
+        // Audio encoding for optimal voice quality with low latency
         '-acodec', 'libmp3lame',
         '-b:a', '128k',
         '-ar', '44100',
@@ -172,7 +197,18 @@ class BroadcastService {
         '-ac', audioConfig.channels.toString(),
         '-i', 'pipe:0',
         
-        // Audio encoding for Icecast compatibility with voice optimization
+        // LOW LATENCY OPTIMIZATION: Minimize all buffering and delays
+        '-flush_packets', '1',                    // Flush packets immediately
+        '-fflags', '+genpts+igndts+flush_packets', // Enhanced flags for low latency
+        '-avoid_negative_ts', 'make_zero',        // Handle timestamp issues
+        '-max_delay', '0',                        // Minimize muxing delay
+        '-muxdelay', '0',                         // No mux delay
+        '-muxpreload', '0',                       // No preload buffer
+        '-thread_queue_size', '1',                // Minimal thread queue
+        '-probesize', '32',                       // Minimal probe size
+        '-analyzeduration', '0',                  // No analysis delay
+        
+        // Audio encoding for Icecast compatibility with voice optimization and low latency
         '-acodec', 'libmp3lame',
         '-b:a', '128k',
         '-ar', '44100',
@@ -384,7 +420,20 @@ class BroadcastService {
       title: null,
       lecturer: null,
       startedAt: null,
-      mutedAt: null
+      mutedAt: null,
+      currentAudioFile: null  // Clear any existing audio file state
+    });
+
+    // Notify all listeners that broadcast has stopped
+    await this.notifyListeners({
+      type: 'broadcast_stop',
+      message: 'Live broadcast has ended',
+      isLive: false,
+      isMuted: false,
+      title: null,
+      lecturer: null,
+      startedAt: null,
+      currentAudioFile: null
     });
 
     // Notify client of successful stop
@@ -684,10 +733,10 @@ class BroadcastService {
         }));
       }
 
-      // Notify listeners (Requirements 3.7)
+      // Notify listeners (Requirements 3.7) - Professional radio messaging
       await this.notifyListeners({
         type: 'audio_playback_started',
-        message: `Now playing: ${fileName}`,
+        message: `♪ ${fileName}`, // Simple, clean message
         audioFile: {
           title: fileName,
           duration: duration
@@ -750,6 +799,192 @@ class BroadcastService {
         ws.send(JSON.stringify({
           type: 'error',
           message: 'Failed to stop audio injection'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Pause audio injection
+   */
+  async pauseAudioInjection(ws, user) {
+    console.log(`⏸️ Pausing audio injection for ${user.email}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'pause_audio')) {
+      return;
+    }
+
+    try {
+      // Update current broadcast state
+      if (this.currentBroadcast && this.currentBroadcast.currentAudioFile) {
+        this.currentBroadcast.currentAudioFile.isPaused = true;
+        this.currentBroadcast.currentAudioFile.pausedAt = new Date();
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'audio_injection_paused',
+          message: 'Audio playback paused'
+        }));
+      }
+
+      // Notify listeners
+      await this.notifyListeners({
+        type: 'audio_playback_paused',
+        message: 'Audio playback paused'
+      });
+
+      console.log(`✅ Audio injection paused for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error pausing audio injection:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to pause audio injection'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Resume audio injection
+   */
+  async resumeAudioInjection(ws, user) {
+    console.log(`▶️ Resuming audio injection for ${user.email}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'resume_audio')) {
+      return;
+    }
+
+    try {
+      // Update current broadcast state
+      if (this.currentBroadcast && this.currentBroadcast.currentAudioFile) {
+        this.currentBroadcast.currentAudioFile.isPaused = false;
+        this.currentBroadcast.currentAudioFile.pausedAt = null;
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'audio_injection_resumed',
+          message: 'Audio playback resumed'
+        }));
+      }
+
+      // Notify listeners
+      await this.notifyListeners({
+        type: 'audio_playback_resumed',
+        message: 'Audio playback resumed'
+      });
+
+      console.log(`✅ Audio injection resumed for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error resuming audio injection:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to resume audio injection'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Seek audio injection to specific time
+   */
+  async seekAudioInjection(ws, user, timeInSeconds) {
+    console.log(`⏭️ Seeking audio injection for ${user.email} to ${timeInSeconds}s`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'seek_audio')) {
+      return;
+    }
+
+    try {
+      // Update current broadcast state
+      if (this.currentBroadcast && this.currentBroadcast.currentAudioFile) {
+        this.currentBroadcast.currentAudioFile.currentTime = timeInSeconds;
+        this.currentBroadcast.currentAudioFile.lastSeekAt = new Date();
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'audio_injection_seeked',
+          message: `Audio seeked to ${Math.floor(timeInSeconds)}s`,
+          time: timeInSeconds
+        }));
+      }
+
+      // Notify listeners
+      await this.notifyListeners({
+        type: 'audio_playback_seeked',
+        message: `Audio seeked to ${Math.floor(timeInSeconds)}s`,
+        time: timeInSeconds
+      });
+
+      console.log(`✅ Audio injection seeked for ${user.email} to ${timeInSeconds}s`);
+    } catch (error) {
+      console.error('❌ Error seeking audio injection:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to seek audio injection'
+        }));
+      }
+    }
+  }
+
+  /**
+   * Skip audio injection forward or backward
+   */
+  async skipAudioInjection(ws, user, seconds) {
+    const direction = seconds > 0 ? 'forward' : 'backward';
+    const absSeconds = Math.abs(seconds);
+    console.log(`⏭️ Skipping audio injection ${direction} ${absSeconds}s for ${user.email}`);
+
+    // Validate user has permission
+    if (!this.validateBroadcastPermission(ws, user, 'skip_audio')) {
+      return;
+    }
+
+    try {
+      // Update current broadcast state
+      if (this.currentBroadcast && this.currentBroadcast.currentAudioFile) {
+        const currentTime = this.currentBroadcast.currentAudioFile.currentTime || 0;
+        const duration = this.currentBroadcast.currentAudioFile.duration || 0;
+        const newTime = Math.max(0, Math.min(currentTime + seconds, duration));
+        
+        this.currentBroadcast.currentAudioFile.currentTime = newTime;
+        this.currentBroadcast.currentAudioFile.lastSkipAt = new Date();
+      }
+
+      // Notify presenter
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'audio_injection_skipped',
+          message: `Skipped ${direction} ${absSeconds}s`,
+          seconds: seconds
+        }));
+      }
+
+      // Notify listeners
+      await this.notifyListeners({
+        type: 'audio_playback_skipped',
+        message: `Skipped ${direction} ${absSeconds}s`,
+        seconds: seconds
+      });
+
+      console.log(`✅ Audio injection skipped ${direction} ${absSeconds}s for ${user.email}`);
+    } catch (error) {
+      console.error('❌ Error skipping audio injection:', error);
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to skip audio injection'
         }));
       }
     }
@@ -832,8 +1067,8 @@ class BroadcastService {
       
       console.log('🔍 Notify Debug:', {
         apiUrl,
-        apiKey: apiKey.substring(0, 8) + '...',
-        eventType: eventData.type
+        eventType: eventData.type,
+        hasApiKey: !!apiKey
       });
       
       // Send notification to Next.js API to broadcast via SSE

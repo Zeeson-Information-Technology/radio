@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
         title: null,
         lecturer: null,
         startedAt: null,
+        currentAudioFile: null,  // Clear any existing audio file state
         updatedAt: new Date()
       },
       { upsert: true }

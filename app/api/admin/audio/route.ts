@@ -47,11 +47,8 @@ export async function GET(request: NextRequest) {
 
     // Build base query
     const baseQuery: any = {
-      status: 'active',
-      $or: [
-        { conversionStatus: { $in: ['ready', 'completed'] } },
-        { conversionStatus: { $exists: false } } // For recordings without conversion status
-      ]
+      status: 'active'
+      // Remove conversion status filter to show all files including converting ones
     };
 
     // Add search filter if provided (Requirements 7.8)
@@ -74,7 +71,7 @@ export async function GET(request: NextRequest) {
         // User's own audio files
         baseQuery.createdBy = admin._id;
         audioFiles = await AudioRecording.find(baseQuery)
-          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl visibility sharedWith broadcastReady createdAt broadcastUsageCount')
+          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl visibility sharedWith broadcastReady createdAt broadcastUsageCount conversionStatus conversionError')
           .sort({ createdAt: -1 })
           .limit(limit)
           .skip(offset)
@@ -88,7 +85,7 @@ export async function GET(request: NextRequest) {
         baseQuery.sharedWith = admin._id;
         baseQuery.createdBy = { $ne: admin._id }; // Exclude own files
         audioFiles = await AudioRecording.find(baseQuery)
-          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl createdBy broadcastReady createdAt broadcastUsageCount')
+          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl createdBy broadcastReady createdAt broadcastUsageCount conversionStatus conversionError')
           .sort({ createdAt: -1 })
           .limit(limit)
           .skip(offset)
@@ -100,7 +97,7 @@ export async function GET(request: NextRequest) {
         // Public station library
         baseQuery.visibility = 'public';
         audioFiles = await AudioRecording.find(baseQuery)
-          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl createdBy broadcastReady createdAt broadcastUsageCount')
+          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl createdBy broadcastReady createdAt broadcastUsageCount conversionStatus conversionError')
           .sort({ broadcastUsageCount: -1, createdAt: -1 }) // Sort by usage then date
           .limit(limit)
           .skip(offset)
@@ -114,7 +111,7 @@ export async function GET(request: NextRequest) {
           .populate({
             path: 'audioId',
             match: baseQuery,
-            select: 'title description lecturerName category duration fileSize playbackUrl cdnUrl createdBy broadcastReady createdAt broadcastUsageCount'
+            select: 'title description lecturerName category duration fileSize playbackUrl cdnUrl createdBy broadcastReady createdAt broadcastUsageCount conversionStatus conversionError'
           })
           .sort({ createdAt: -1 })
           .limit(limit)
@@ -139,7 +136,7 @@ export async function GET(request: NextRequest) {
         // All accessible files (Requirements 8.5, 8.6, 8.7)
         audioFiles = await (AudioRecording as any).getAccessibleFiles(admin._id.toString(), admin.role)
           .find(baseQuery)
-          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl visibility sharedWith createdBy broadcastReady createdAt broadcastUsageCount')
+          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl visibility sharedWith createdBy broadcastReady createdAt broadcastUsageCount conversionStatus conversionError')
           .sort({ broadcastUsageCount: -1, createdAt: -1 })
           .limit(limit)
           .skip(offset)
@@ -175,7 +172,12 @@ export async function GET(request: NextRequest) {
       isFavorite: favoriteIds.has(file._id.toString()),
       isOwner: file.createdBy && file.createdBy._id ? 
         file.createdBy._id.toString() === admin._id.toString() : 
-        file.createdBy.toString() === admin._id.toString()
+        file.createdBy.toString() === admin._id.toString(),
+      // Add conversion status information
+      conversionStatus: file.conversionStatus || 'ready',
+      conversionError: file.conversionError,
+      isConverting: file.conversionStatus && ['pending', 'processing'].includes(file.conversionStatus),
+      isPlayable: !file.conversionStatus || ['ready', 'completed'].includes(file.conversionStatus)
     }));
 
     return NextResponse.json({

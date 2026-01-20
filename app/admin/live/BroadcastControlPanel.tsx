@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SerializedAdmin } from '@/lib/types/admin';
-import { useLiveAudioModals } from '@/lib/hooks/useLiveAudioModals';
 import { useToast } from '@/lib/contexts/ToastContext';
 import { useConfirm } from '@/lib/hooks/useConfirm';
 import { useModal } from '@/lib/contexts/ModalContext';
@@ -34,6 +33,7 @@ interface BroadcastControlPanelProps {
   isMonitoring: boolean;
   audioInjectionActive: boolean;
   currentAudioFile: string | null;
+  isAudioPaused?: boolean;
   feedbackWarning: string | null;
   playbackProgress?: number;
   playbackDuration?: number;
@@ -41,6 +41,10 @@ interface BroadcastControlPanelProps {
   onMonitorToggle: () => void;
   onAudioFilePlay: (fileId: string, fileName: string, duration: number) => void;
   onAudioStop: () => void;
+  onAudioPause?: () => void;
+  onAudioResume?: () => void;
+  onAudioSeek?: (time: number) => void;
+  onAudioSkip?: (seconds: number) => void;
 }
 
 export default function BroadcastControlPanel({
@@ -50,13 +54,18 @@ export default function BroadcastControlPanel({
   isMonitoring,
   audioInjectionActive,
   currentAudioFile,
+  isAudioPaused = false,
   feedbackWarning,
   playbackProgress = 0,
   playbackDuration = 0,
   onMuteToggle,
   onMonitorToggle,
   onAudioFilePlay,
-  onAudioStop
+  onAudioStop,
+  onAudioPause,
+  onAudioResume,
+  onAudioSeek,
+  onAudioSkip
 }: BroadcastControlPanelProps) {
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -69,7 +78,6 @@ export default function BroadcastControlPanel({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
   // Live audio modals
-  const { openUploadModal } = useLiveAudioModals();
   const { showSuccess, showError, showInfo } = useToast();
   const { confirm } = useConfirm();
   const { openModal } = useModal();
@@ -77,9 +85,12 @@ export default function BroadcastControlPanel({
   // Stop any currently playing preview audio
   const stopCurrentPreview = useCallback((showToast: boolean = true) => {
     setPreviewState(prev => {
-      // Only show toast if there's actually audio being previewed AND showToast is true
+      // Store whether we should show toast for useEffect
       if (prev.fileId && showToast) {
-        showInfo('Preview Stopped', 'Audio preview stopped');
+        // Use setTimeout to move toast call outside of render phase
+        setTimeout(() => {
+          showInfo('Preview Stopped', 'Audio preview stopped');
+        }, 0);
       }
       return { fileId: null, data: null };
     });
@@ -293,18 +304,18 @@ export default function BroadcastControlPanel({
   // Only hide broadcast-specific controls when not streaming
   const showBroadcastControls = isStreaming;
   return (
-    <div className="mt-6 lg:mt-8 bg-gradient-to-br from-white via-slate-50 to-emerald-50/30 rounded-2xl lg:rounded-3xl shadow-2xl border-2 border-emerald-100/50 overflow-hidden">
+    <div className="mt-6 lg:mt-8 bg-gradient-to-br from-white via-slate-50 to-emerald-50/30 rounded-2xl lg:rounded-3xl shadow-2xl border-2 border-emerald-100/50 overflow-hidden" data-testid="broadcast-control-panel">
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 px-4 py-4 lg:px-8 lg:py-6 text-center relative overflow-hidden">
         <div className="absolute inset-0 bg-black/10"></div>
         <div className="relative z-10">
           <h2 className="text-lg lg:text-2xl font-bold text-white mb-1 lg:mb-2">
-            {showBroadcastControls ? 'Broadcast Controls' : 'Broadcast Audio'}
+            {showBroadcastControls ? 'Broadcast Controls' : 'Audio Library'}
           </h2>
           <p className="text-emerald-100 text-sm lg:text-base">
             {showBroadcastControls 
               ? 'Professional broadcasting tools for live sessions' 
-              : 'Manage audio files for live broadcast injection'
+              : 'Audio player for live broadcast'
             }
           </p>
         </div>
@@ -473,6 +484,84 @@ export default function BroadcastControlPanel({
                         <span>{formatDuration(playbackDuration)}</span>
                       </div>
                     </div>
+
+                    {/* Enhanced Audio Controls */}
+                    <div className="mt-3 lg:mt-4 space-y-2">
+                      {/* Seek Bar */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min="0"
+                          max={playbackDuration}
+                          value={playbackProgress}
+                          onChange={(e) => onAudioSeek?.(Number(e.target.value))}
+                          className="flex-1 h-2 bg-emerald-200 rounded-lg appearance-none cursor-pointer"
+                          style={{
+                            background: `linear-gradient(to right, #10b981 0%, #10b981 ${(playbackProgress / playbackDuration) * 100}%, #a7f3d0 ${(playbackProgress / playbackDuration) * 100}%, #a7f3d0 100%)`
+                          }}
+                        />
+                      </div>
+
+                      {/* Control Buttons */}
+                      <div className="flex items-center justify-center gap-2">
+                        {/* Skip Backward 10s */}
+                        <button
+                          onClick={() => onAudioSkip?.(-10)}
+                          className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                          title="Skip backward 10 seconds"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8L12.066 11.2zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8L4.066 11.2z" />
+                          </svg>
+                        </button>
+
+                        {/* Skip Backward 30s */}
+                        <button
+                          onClick={() => onAudioSkip?.(-30)}
+                          className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                          title="Skip backward 30 seconds"
+                        >
+                          <span className="text-xs font-bold">-30</span>
+                        </button>
+
+                        {/* Pause/Resume */}
+                        <button
+                          onClick={isAudioPaused ? onAudioResume : onAudioPause}
+                          className="p-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                          title={isAudioPaused ? "Resume audio" : "Pause audio"}
+                        >
+                          {isAudioPaused ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m2-10v18a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2h14a2 2 0 012 2z" />
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6" />
+                            </svg>
+                          )}
+                        </button>
+
+                        {/* Skip Forward 30s */}
+                        <button
+                          onClick={() => onAudioSkip?.(30)}
+                          className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                          title="Skip forward 30 seconds"
+                        >
+                          <span className="text-xs font-bold">+30</span>
+                        </button>
+
+                        {/* Skip Forward 10s */}
+                        <button
+                          onClick={() => onAudioSkip?.(10)}
+                          className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                          title="Skip forward 10 seconds"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Stop Button (Requirements 3.6) */}
@@ -506,19 +595,9 @@ export default function BroadcastControlPanel({
               <svg className="w-4 h-4 lg:w-5 lg:h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-              <span className="text-sm lg:text-base">Broadcast Audio Library</span>
+              <span className="text-sm lg:text-base">Audio Library</span>
             </h3>
             <div className="flex items-center gap-2 lg:gap-3">
-              <button
-                onClick={() => openUploadModal(loadAudioFiles)}
-                className="inline-flex items-center gap-1 lg:gap-2 px-3 py-2 lg:px-4 lg:py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium text-xs lg:text-sm"
-              >
-                <svg className="w-3 h-3 lg:w-4 lg:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <span className="hidden sm:inline">📤 Upload Audio</span>
-                <span className="sm:hidden">📤 Upload</span>
-              </button>
               <button
                 onClick={loadAudioFiles}
                 disabled={isLoadingFiles}
@@ -535,9 +614,9 @@ export default function BroadcastControlPanel({
               <div className="flex items-start gap-2 lg:gap-3 text-blue-800">
                 <span className="text-lg lg:text-2xl flex-shrink-0">📡</span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm lg:text-base">Broadcast Audio - Browse Mode</p>
+                  <p className="font-semibold text-sm lg:text-base">Audio Library - Browse Mode</p>
                   <p className="text-xs lg:text-sm text-blue-700 mt-1">
-                    Browse broadcast-ready audio files. To inject audio into a live broadcast, click "Start Broadcasting" above.
+                    Browse and preview audio files. Start broadcasting above to play audio live on air.
                   </p>
                 </div>
               </div>
@@ -585,8 +664,8 @@ export default function BroadcastControlPanel({
               <svg className="w-12 h-12 text-slate-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-              <p className="text-slate-600 font-medium mb-2">No broadcast-ready audio files</p>
-              <p className="text-slate-500 text-sm">Upload audio files and mark them as broadcast-ready for live injection</p>
+              <p className="text-slate-600 font-medium mb-2">No audio files available</p>
+              <p className="text-slate-500 text-sm">Upload audio files in the Audio Library to use them here</p>
             </div>
           ) : (
             <div className="grid gap-2 lg:gap-3 max-h-48 lg:max-h-64 overflow-y-auto">
@@ -657,7 +736,7 @@ export default function BroadcastControlPanel({
                       </button>
                     )}
                     
-                    {/* Play button - always available for all users */}
+                    {/* Simple Play/Pause button - streamlined interface */}
                     {isStreaming ? (
                       <button
                         onClick={() => handleAudioFileSelect(file)}
@@ -669,9 +748,9 @@ export default function BroadcastControlPanel({
                         }`}
                       >
                         {audioInjectionActive && currentAudioFile === file.title ? (
-                          <>⏹️ <span className="hidden sm:inline">Playing</span></>
+                          <>⏸️ <span className="hidden sm:inline">Playing</span></>
                         ) : (
-                          <>📡 <span className="hidden sm:inline">Play on Air</span><span className="sm:hidden">Play</span></>
+                          <>▶️ <span className="hidden sm:inline">Play</span><span className="sm:hidden">Play</span></>
                         )}
                       </button>
                     ) : (
@@ -682,15 +761,15 @@ export default function BroadcastControlPanel({
                             className="px-3 py-2 lg:px-4 lg:py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs lg:text-sm"
                             title="Close preview player"
                           >
-                            🎧 <span className="hidden sm:inline">Close Preview</span><span className="sm:hidden">Close</span>
+                            ⏸️ <span className="hidden sm:inline">Stop</span><span className="sm:hidden">Stop</span>
                           </button>
                         ) : (
                           <button
                             onClick={() => handleLocalPreview(file)}
                             className="px-3 py-2 lg:px-4 lg:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs lg:text-sm"
-                            title="Preview this audio file with full controls"
+                            title="Preview this audio file"
                           >
-                            🎧 <span className="hidden sm:inline">Preview</span><span className="sm:hidden">Preview</span>
+                            ▶️ <span className="hidden sm:inline">Play</span><span className="sm:hidden">Play</span>
                           </button>
                         )}
                       </div>

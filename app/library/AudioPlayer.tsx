@@ -156,6 +156,7 @@ export default function AudioPlayer({ recording, onClose }: AudioPlayerProps) {
             originalFormat={playbackData.originalFormat}
             onEnded={() => {}}
             onError={(error) => setError(error)}
+            autoPlay={true}
           />
         ) : null}
       </div>

@@ -5,7 +5,7 @@ import { useModal } from '@/lib/contexts/ModalContext';
 
 interface ModalProps {
   children: ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | 'responsive';
   showCloseButton?: boolean;
 }
 
@@ -24,7 +24,8 @@ export default function Modal({
     '2xl': 'max-w-2xl',
     '3xl': 'max-w-3xl',
     '4xl': 'max-w-4xl',
-    '5xl': 'max-w-5xl'
+    '5xl': 'max-w-5xl',
+    responsive: 'max-w-sm sm:max-w-md md:max-w-lg lg:max-w-xl'
   };
 
   return (

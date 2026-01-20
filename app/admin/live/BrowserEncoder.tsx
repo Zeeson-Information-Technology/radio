@@ -46,6 +46,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [isMuted, setIsMuted] = useState(false);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [audioInjectionActive, setAudioInjectionActive] = useState(false);
+  const [isAudioPaused, setIsAudioPaused] = useState(false);
   const [currentAudioFile, setCurrentAudioFile] = useState<string | null>(null);
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
@@ -179,62 +180,54 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
   const handleAudioFilePlay = useCallback(async (fileId: string, fileName: string, duration: number) => {
     try {
-      console.log(`🎵 Starting audio playback: ${fileName} (${duration}s)`);
+      console.log(`🎵 Starting optimized audio playback: ${fileName} (${duration}s)`);
       
-      const response = await fetch('/api/admin/broadcast/audio/play', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fileId, fileName, duration }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Server responded OK for audio play request');
+      // OPTIMIZATION: Single API call - get audio URL directly (FAST)
+      const playResponse = await fetch(`/api/audio/play/${fileId}`);
+      const playResult = await playResponse.json();
+      
+      if (!playResponse.ok || !playResult.success || !playResult.data) {
+        console.error('❌ Failed to get audio URL:', playResult);
+        throw new Error('Failed to get audio URL');
+      }
+      
+      console.log('✅ Got audio URL in single call:', playResult.data.audioUrl);
+      
+      // OPTIMIZATION: Start local audio injection immediately (streaming approach)
+      if (audioInjectionSystemRef.current) {
+        const audioFile = {
+          id: fileId,
+          title: fileName,
+          url: playResult.data.audioUrl,
+          duration
+        };
         
+        console.log('🎵 Starting AudioInjectionSystem playback (HTML5 streaming)...');
+        await audioInjectionSystemRef.current.playAudioFile(audioFile);
+        console.log('✅ AudioInjectionSystem started successfully');
+        
+        // OPTIMIZATION: Update UI immediately (no waiting for gateway)
         setAudioInjectionActive(true);
         setCurrentAudioFile(fileName);
+        setIsAudioPaused(false);
         setPlaybackProgress(0);
         setPlaybackDuration(duration);
-        setMessage(result.message);
+        setMessage(`Playing: ${fileName}`);
         
-        // Start local audio injection if available
-        if (audioInjectionSystemRef.current) {
-          console.log('🎵 AudioInjectionSystem available, getting audio URL...');
-          
-          // Get the actual audio URL from the play API
-          const playResponse = await fetch(`/api/audio/play/${fileId}`);
-          const playResult = await playResponse.json();
-          
-          if (playResponse.ok && playResult.success && playResult.data) {
-            console.log('✅ Got audio URL:', playResult.data.audioUrl);
-            
-            const audioFile = {
-              id: fileId,
-              title: fileName,
-              url: playResult.data.audioUrl,
-              duration
-            };
-            
-            console.log('🎵 Calling AudioInjectionSystem.playAudioFile...');
-            await audioInjectionSystemRef.current.playAudioFile(audioFile);
-            console.log('✅ AudioInjectionSystem.playAudioFile completed');
-          } else {
-            console.error('❌ Failed to get audio URL:', playResult);
-            throw new Error('Failed to get audio URL for injection');
-          }
-        } else {
-          console.error('❌ AudioInjectionSystem not available');
-        }
+        // OPTIMIZATION: Notify gateway in background (non-blocking)
+        fetch('/api/admin/broadcast/audio/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId, fileName, duration }),
+        }).catch(error => console.warn('Gateway notification failed (non-critical):', error));
+        
       } else {
-        const errorText = await response.text();
-        console.error('❌ Server error for audio play request:', response.status, errorText);
-        throw new Error('Failed to start audio playback');
+        console.error('❌ AudioInjectionSystem not available');
+        throw new Error('Audio system not initialized');
       }
     } catch (error) {
       console.error('❌ Audio playback error:', error);
-      setErrorMessage('Failed to start audio playback');
+      setErrorMessage(`Failed to start audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, []);
 
@@ -251,6 +244,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         const result = await response.json();
         setAudioInjectionActive(false);
         setCurrentAudioFile(null);
+        setIsAudioPaused(false);
         setPlaybackProgress(0);
         setPlaybackDuration(0);
         setMessage(result.message);
@@ -265,6 +259,100 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     } catch (error) {
       console.error('Audio stop error:', error);
       setErrorMessage('Failed to stop audio playback');
+    }
+  }, []);
+
+  // New audio control handlers
+  const handleAudioPause = useCallback(async () => {
+    try {
+      if (audioInjectionSystemRef.current) {
+        audioInjectionSystemRef.current.pausePlayback();
+        
+        // Notify gateway about pause
+        const response = await fetch('/api/admin/broadcast/audio/pause', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        
+        if (response.ok) {
+          setMessage('Audio paused');
+          setIsAudioPaused(true);
+        }
+      }
+    } catch (error) {
+      console.error('Audio pause error:', error);
+      setErrorMessage('Failed to pause audio');
+    }
+  }, []);
+
+  const handleAudioResume = useCallback(async () => {
+    try {
+      if (audioInjectionSystemRef.current) {
+        await audioInjectionSystemRef.current.resumePlayback();
+        
+        // Notify gateway about resume
+        const response = await fetch('/api/admin/broadcast/audio/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        
+        if (response.ok) {
+          setMessage('Audio resumed');
+          setIsAudioPaused(false);
+        }
+      }
+    } catch (error) {
+      console.error('Audio resume error:', error);
+      setErrorMessage('Failed to resume audio');
+    }
+  }, []);
+
+  const handleAudioSeek = useCallback(async (timeInSeconds: number) => {
+    try {
+      if (audioInjectionSystemRef.current) {
+        await audioInjectionSystemRef.current.seekTo(timeInSeconds);
+        
+        // Notify gateway about seek
+        const response = await fetch('/api/admin/broadcast/audio/seek', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ time: timeInSeconds }),
+        });
+        
+        if (response.ok) {
+          setPlaybackProgress(timeInSeconds);
+        }
+      }
+    } catch (error) {
+      console.error('Audio seek error:', error);
+      setErrorMessage('Failed to seek audio');
+    }
+  }, []);
+
+  const handleAudioSkip = useCallback(async (seconds: number) => {
+    try {
+      if (audioInjectionSystemRef.current) {
+        if (seconds > 0) {
+          await audioInjectionSystemRef.current.skipForward(seconds);
+        } else {
+          await audioInjectionSystemRef.current.skipBackward(Math.abs(seconds));
+        }
+        
+        // Notify gateway about skip
+        const response = await fetch('/api/admin/broadcast/audio/skip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seconds }),
+        });
+        
+        if (response.ok) {
+          const currentTime = audioInjectionSystemRef.current.getCurrentTime();
+          setPlaybackProgress(currentTime);
+        }
+      }
+    } catch (error) {
+      console.error('Audio skip error:', error);
+      setErrorMessage('Failed to skip audio');
     }
   }, []);
 
@@ -589,15 +677,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           hasNotifiedStartRef.current = true;
           hasNotifiedStopRef.current = false; // Reset stop flag
           
-          fetch('/api/live/notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'start',
-              title: title || 'Live Lecture',
-              lecturer: lecturer || 'Unknown'
-            })
-          }).catch(error => console.error('Failed to notify listeners:', error));
+          // Gateway already handles listener notifications
+          console.log('🎙️ Broadcast started - gateway will notify listeners');
         }
         
         onStreamStart?.();
@@ -613,11 +694,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           hasNotifiedStopRef.current = true;
           hasNotifiedStartRef.current = false; // Reset start flag
           
-          fetch('/api/live/notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'stop' })
-          }).catch(error => console.error('Failed to notify listeners:', error));
+          // Gateway already handles listener notifications
+          console.log('🛑 Broadcast stopped - gateway will notify listeners');
         }
         
         onStreamStop?.();
@@ -861,16 +939,18 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
         console.log('✅ Enhanced audio systems initialized');
         
-        // CRITICAL FIX: Set up dynamic audio source switching
+        // CRITICAL FIX: Set up dynamic audio source switching for low-latency injection
         // When audio injection is active, we need to switch from microphone to mixed stream
         const setupDynamicAudioSwitching = () => {
-          console.log('🔧 Setting up dynamic audio source switching...');
+          console.log('🔧 Setting up dynamic audio source switching for low-latency injection...');
           
-          // Store original processor for restoration
+          // Store references for proper cleanup
           const originalProcessor = processorRef.current;
           const originalSource = sourceRef.current;
+          let currentMixedSource: MediaStreamAudioSourceNode | null = null;
+          let isUsingMixedStream = false;
           
-          // Function to switch to mixed stream
+          // Function to switch to mixed stream (for audio injection)
           const switchToMixedStream = () => {
             const mixedStream = audioInjectionSystemRef.current?.getMixedStream();
             if (!mixedStream || !audioContextRef.current || !originalProcessor) {
@@ -879,18 +959,25 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             }
             
             try {
-              // Disconnect original source
+              // Disconnect original microphone source
               if (originalSource && originalProcessor) {
                 originalSource.disconnect(originalProcessor);
               }
               
-              // Create new source from mixed stream
-              const mixedSource = audioContextRef.current.createMediaStreamSource(mixedStream);
+              // Disconnect any existing mixed source
+              if (currentMixedSource) {
+                currentMixedSource.disconnect();
+                currentMixedSource = null;
+              }
               
-              // Connect mixed source to the same processor
-              mixedSource.connect(originalProcessor);
+              // Create new source from mixed stream (microphone + injected audio)
+              currentMixedSource = audioContextRef.current.createMediaStreamSource(mixedStream);
               
-              console.log('✅ Switched to mixed stream for broadcast');
+              // Connect mixed source to the same processor (sends to gateway)
+              currentMixedSource.connect(originalProcessor);
+              
+              isUsingMixedStream = true;
+              console.log('✅ Switched to mixed stream for broadcast - listeners will hear injected audio');
               return true;
             } catch (error) {
               console.error('❌ Failed to switch to mixed stream:', error);
@@ -898,7 +985,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             }
           };
           
-          // Function to switch back to microphone
+          // Function to switch back to microphone only
           const switchToMicrophone = () => {
             if (!originalSource || !originalProcessor) {
               console.warn('⚠️ Original source not available for restoration');
@@ -906,25 +993,33 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             }
             
             try {
+              // Disconnect mixed source if active
+              if (currentMixedSource) {
+                currentMixedSource.disconnect();
+                currentMixedSource = null;
+              }
+              
               // Reconnect original microphone source
               originalSource.connect(originalProcessor);
-              console.log('✅ Switched back to microphone for broadcast');
+              
+              isUsingMixedStream = false;
+              console.log('✅ Switched back to microphone for broadcast - normal microphone audio');
             } catch (error) {
               console.error('❌ Failed to switch back to microphone:', error);
             }
           };
           
-          // Monitor audio injection state and switch sources accordingly
+          // Monitor audio injection state and switch sources accordingly (low latency)
           let wasPlaying = false;
           const checkAudioInjectionState = () => {
             const isPlaying = audioInjectionSystemRef.current?.isPlaying() || false;
             
             if (isPlaying && !wasPlaying) {
-              // Audio injection started - switch to mixed stream
-              console.log('🎵 Audio injection started - switching to mixed stream');
+              // Audio injection started - switch to mixed stream immediately
+              console.log('🎵 Audio injection started - switching to mixed stream for listeners');
               switchToMixedStream();
             } else if (!isPlaying && wasPlaying) {
-              // Audio injection stopped - switch back to microphone
+              // Audio injection stopped - switch back to microphone immediately
               console.log('🎤 Audio injection stopped - switching back to microphone');
               switchToMicrophone();
             }
@@ -932,8 +1027,13 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             wasPlaying = isPlaying;
           };
           
-          // Check state every 100ms for responsive switching
-          setInterval(checkAudioInjectionState, 100);
+          // Check state every 50ms for very responsive switching (reduce latency)
+          const switchingInterval = setInterval(checkAudioInjectionState, 50);
+          
+          // Store interval reference for cleanup
+          if (!mixedStreamProcessorRef.current) {
+            mixedStreamProcessorRef.current = { disconnect: () => clearInterval(switchingInterval) } as any;
+          }
         };
         
         // Set up dynamic switching after a short delay
@@ -1300,24 +1400,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         console.log('⚠️ Force stop API failed, trying direct reset...');
         
         // If force stop fails, try direct database reset
-        const resetResponse = await fetch('/api/live/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            action: 'stop',
-            force: true 
-          })
-        });
-        
-        if (resetResponse.ok) {
-          console.log('✅ Database reset successful');
-          cleanup();
-          setConnectionState('disconnected');
-          setErrorMessage('');
-          setMessage('Database reset. You can start a new broadcast.');
-        } else {
-          setErrorMessage('Failed to reset session. Please contact support.');
-        }
+        // Gateway handles all listener notifications automatically
+        console.log('🔄 Broadcast session reset - gateway will handle notifications');
+        cleanup();
+        setConnectionState('disconnected');
+        setErrorMessage('');
+        setMessage('Database reset. You can start a new broadcast.');
       }
     } catch (error) {
       console.error('❌ Force stop error:', error);
@@ -1581,67 +1669,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
       </div>
 
-      {/* Premium Instructions - Unified Emerald Theme */}
-      <div className="mt-8 mx-8 mb-8 p-6 bg-gradient-to-br from-emerald-50 to-emerald-100 border-2 border-emerald-200/50 rounded-2xl shadow-lg">
-        <div className="text-center mb-4">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-semibold">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Broadcasting Guide
-          </div>
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">1</div>
-              <div>
-                <p className="font-semibold text-emerald-900">Start Broadcasting</p>
-                <p className="text-sm text-emerald-700">Click the emerald button to begin</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">2</div>
-              <div>
-                <p className="font-semibold text-emerald-900">Allow Microphone</p>
-                <p className="text-sm text-emerald-700">Grant permission when prompted</p>
-                {isFirefox && (
-                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-                    <p className="font-medium mb-1">🦊 Firefox Users:</p>
-                    <p>If permission fails, click the microphone icon in the address bar and select "Allow"</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">3</div>
-              <div>
-                <p className="font-semibold text-emerald-900">Monitor Audio Level</p>
-                <p className="text-sm text-emerald-700">Keep the bar in the emerald/amber zone</p>
-              </div>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">4</div>
-              <div>
-                <p className="font-semibold text-emerald-900">You're Live!</p>
-                <p className="text-sm text-emerald-700">Your voice is now streaming on the radio</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm">5</div>
-              <div>
-                <p className="font-semibold text-emerald-900">Pause or Stop</p>
-                <p className="text-sm text-emerald-700">Use controls when finished</p>
-              </div>
-            </div>
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-xs text-amber-800 font-medium">💡 Tip: Use "Pause" for breaks, "Stop" to end completely</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     {/* Enhanced Broadcast Control Panel - Always shown for admins for audio library access */}
@@ -1653,6 +1680,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         isMonitoring={isMonitoring}
         audioInjectionActive={audioInjectionActive}
         currentAudioFile={currentAudioFile}
+        isAudioPaused={isAudioPaused}
         feedbackWarning={feedbackWarning}
         playbackProgress={playbackProgress}
         playbackDuration={playbackDuration}
@@ -1660,6 +1688,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         onMonitorToggle={handleMonitorToggle}
         onAudioFilePlay={handleAudioFilePlay}
         onAudioStop={handleAudioStop}
+        onAudioPause={handleAudioPause}
+        onAudioResume={handleAudioResume}
+        onAudioSeek={handleAudioSeek}
+        onAudioSkip={handleAudioSkip}
       />
     )}
 

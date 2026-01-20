@@ -7,25 +7,26 @@ import { broadcastUpdate } from "../events/route";
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    
-    // Verify internal API key (basic security)
+    // Get headers first
     const authHeader = request.headers.get('authorization');
     const expectedAuth = `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`;
     
+    // Then parse body
+    const body = await request.json();
+    
     console.log('🔍 Notify API Debug:', {
-      receivedAuth: authHeader?.substring(0, 20) + '...',
-      expectedAuth: expectedAuth.substring(0, 20) + '...',
-      match: authHeader === expectedAuth,
-      eventType: body.type
+      eventType: body.type,
+      hasAuth: !!authHeader,
+      authMatch: authHeader === expectedAuth
     });
     
+    // Verify internal API key (basic security)
     if (authHeader !== expectedAuth) {
-      console.warn('❌ Auth mismatch:', { received: authHeader, expected: expectedAuth });
+      console.warn('❌ Auth mismatch in notify endpoint');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Extract event data
+    // Extract event dataSimple audio 
     const { action, type, message, ...eventData } = body;
     
     if (action !== 'broadcast_event' || !type) {
@@ -42,6 +43,24 @@ export async function POST(request: NextRequest) {
 
     // Handle specific event types
     switch (type) {
+      case 'broadcast_start':
+        sseEventData.isLive = eventData.isLive || true;
+        sseEventData.isMuted = eventData.isMuted || false;
+        sseEventData.title = eventData.title;
+        sseEventData.lecturer = eventData.lecturer;
+        sseEventData.startedAt = eventData.startedAt;
+        sseEventData.streamUrl = eventData.streamUrl;
+        break;
+
+      case 'broadcast_stop':
+        sseEventData.isLive = eventData.isLive || false;
+        sseEventData.isMuted = eventData.isMuted || false;
+        sseEventData.title = eventData.title || null;
+        sseEventData.lecturer = eventData.lecturer || null;
+        sseEventData.startedAt = eventData.startedAt || null;
+        sseEventData.currentAudioFile = eventData.currentAudioFile || null;
+        break;
+
       case 'broadcast_muted':
         sseEventData.isMuted = true;
         sseEventData.mutedAt = eventData.mutedAt || new Date().toISOString();
@@ -66,6 +85,26 @@ export async function POST(request: NextRequest) {
         // Map to the format expected by RadioPlayer
         sseEventData.type = 'audio_playback_stop';
         sseEventData.currentAudioFile = null;
+        break;
+
+      case 'audio_playback_paused':
+        sseEventData.type = 'audio_playback_pause';
+        sseEventData.isPaused = true;
+        break;
+
+      case 'audio_playback_resumed':
+        sseEventData.type = 'audio_playback_resume';
+        sseEventData.isPaused = false;
+        break;
+
+      case 'audio_playback_seeked':
+        sseEventData.type = 'audio_playback_seek';
+        sseEventData.currentTime = eventData.time || 0;
+        break;
+
+      case 'audio_playback_skipped':
+        sseEventData.type = 'audio_playback_skip';
+        sseEventData.skipSeconds = eventData.seconds || 0;
         break;
     }
 
