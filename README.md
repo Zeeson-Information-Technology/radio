@@ -50,11 +50,11 @@ online-radio/
    cp .env.example .env.local
    ```
 
-4. Set up MongoDB (see [DATABASE_SETUP.md](DATABASE_SETUP.md) for detailed instructions):
+4. Set up MongoDB:
    - Create a MongoDB Atlas cluster (free tier) OR install MongoDB locally
    - Add your connection string to `.env.local`:
      ```env
-     MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/online-radio
+     MONGODB_URI=your_mongodb_connection_string_here
      ```
 
 5. Run the development server:

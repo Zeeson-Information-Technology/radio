@@ -110,9 +110,9 @@ online-radio/
 - **Audio Management**: `https://almanhaj.vercel.app/admin/audio`
 
 ### Infrastructure
-- **Gateway Server**: `http://98.93.42.61:8080` (WebSocket + API)
-- **Icecast Server**: `http://98.93.42.61:8000` (Audio streaming)
-- **EC2 SSH**: `ssh -i radio-key.pem ubuntu@98.93.42.61`
+- **Gateway Server**: EC2 instance (WebSocket + API)
+- **Icecast Server**: EC2 instance (Audio streaming)
+- **EC2 Access**: SSH key required
 
 ## 🔄 Current Development Status
 

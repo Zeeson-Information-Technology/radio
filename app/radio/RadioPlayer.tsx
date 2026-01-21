@@ -259,6 +259,12 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
         setIsPlaying(false);
         console.log('🔇 Audio stopped');
       } else {
+        // Check if broadcast is actually live before attempting to play
+        if (!liveData.isLive) {
+          showError('No Live Broadcast', 'There is currently no live broadcast. Please check the schedule for upcoming programs.');
+          return;
+        }
+
         // Warn if broadcast is muted but still allow connection
         if (liveData.isMuted) {
           const shouldContinue = await confirm({
@@ -281,8 +287,50 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
           lecturer: liveData.lecturer 
         });
 
-        // Load and play the stream
+        // Test stream availability first
+        try {
+          const testResponse = await fetch(liveData.streamUrl, { 
+            method: 'HEAD',
+            mode: 'no-cors'
+          });
+          console.log('🔍 Stream test response:', testResponse.status);
+        } catch (error) {
+          console.warn('⚠️ Stream test failed (expected for CORS), proceeding with audio load');
+        }
+
+        // Load and play the stream with better error handling
         audioRef.current.load();
+        
+        // Add event listeners for better error handling
+        const handleCanPlay = () => {
+          console.log('✅ Audio can play');
+        };
+        
+        const handleError = (error: Event) => {
+          console.error('❌ Audio error event:', error);
+          setIsPlaying(false);
+          
+          const audioError = (error.target as HTMLAudioElement)?.error;
+          if (audioError) {
+            switch (audioError.code) {
+              case MediaError.MEDIA_ERR_NETWORK:
+                showError('Network Error', 'Unable to connect to the audio stream. Please check your internet connection and try again.');
+                break;
+              case MediaError.MEDIA_ERR_DECODE:
+                showError('Audio Format Error', 'There was a problem with the audio format. Please try refreshing the page.');
+                break;
+              case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
+                break;
+              default:
+                showError('Playback Error', 'Unable to play the audio stream. Please try again in a moment.');
+            }
+          }
+        };
+        
+        audioRef.current.addEventListener('canplay', handleCanPlay, { once: true });
+        audioRef.current.addEventListener('error', handleError, { once: true });
+        
         await audioRef.current.play();
         setIsPlaying(true);
         console.log('🔊 Audio started');
@@ -296,13 +344,15 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
         if (error.name === 'NotAllowedError') {
           showError('Audio Permission Required', 'Please allow audio playback in your browser. Click the speaker icon in the address bar if needed.');
         } else if (error.name === 'NotSupportedError') {
-          showError('Browser Not Supported', 'Your browser does not support this audio format. Please try a different browser.');
+          showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
+        } else if (error.name === 'AbortError') {
+          showError('Connection Interrupted', 'The audio connection was interrupted. Please try again.');
         } else {
           showError('Connection Failed', 'Unable to connect to the audio stream. Please check your internet connection and try again.');
         }
       }
     }
-  }, [liveData.isLive, liveData.isMuted, liveData.streamUrl, liveData.lecturer, isPlaying]);
+  }, [liveData.isLive, liveData.isMuted, liveData.streamUrl, liveData.lecturer, isPlaying, showError, confirm]);
 
   // Performance optimization: Memoized format function
   const formatStartTime = useCallback((startTime: string): string => {
@@ -391,10 +441,10 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                   {/* Company Information */}
                   <div className="flex-grow">
                     <h2 className="text-2xl font-bold mb-1 text-gray-800">
-                      Al-Muhandissy Civil Engineering
+                      Advert Space
                     </h2>
                     <p className="text-blue-600 font-semibold text-lg mb-3">
-                      Construction & Technical Excellence
+                      Service Type
                     </p>
                     
                     {/* Contact Information */}
@@ -402,7 +452,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                         <div className="flex items-center gap-2">
                           <span className="text-gray-500">📍</span>
-                          <span className="text-gray-700 font-medium">Technical Area, Ilorin, Kwara State</span>
+                          <span className="text-gray-700 font-medium">Technical Area, Lagos</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-gray-500">📱</span>
@@ -410,7 +460,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                         </div>
                         <div className="flex items-center gap-2 md:col-span-2">
                           <span className="text-gray-500">📧</span>
-                          <span className="text-gray-700 font-medium">info@almuhandissy.com</span>
+                          <span className="text-gray-700 font-medium">info@almanhaj.com</span>
                         </div>
                       </div>
                     </div>
@@ -458,10 +508,10 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
               {/* Company Information - Mobile Layout */}
               <div className="flex-grow text-center sm:text-left">
                 <h2 className="text-lg sm:text-xl font-bold mb-1 text-gray-800">
-                  Al-Muhandissy Civil Engineering
+                  Advert Space
                 </h2>
                 <p className="text-blue-600 font-semibold text-sm sm:text-base mb-3">
-                  Construction & Technical Excellence
+                  Service Type
                 </p>
                 
                 {/* Contact Information - Mobile Compact */}
@@ -469,7 +519,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                   <div className="space-y-1 text-xs sm:text-sm">
                     <div className="flex items-center justify-center sm:justify-start gap-2">
                       <span className="text-gray-500">📍</span>
-                      <span className="text-gray-700 font-medium">Technical Area, Ilorin</span>
+                      <span className="text-gray-700 font-medium">Technical Area, Lagos</span>
                     </div>
                     <div className="flex items-center justify-center sm:justify-start gap-2">
                       <span className="text-gray-500">📱</span>
@@ -477,7 +527,7 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
                     </div>
                     <div className="flex items-center justify-center sm:justify-start gap-2">
                       <span className="text-gray-500">📧</span>
-                      <span className="text-gray-700 font-medium">info@almuhandissy.com</span>
+                      <span className="text-gray-700 font-medium">info@almanhaj.com</span>
                     </div>
                   </div>
                 </div>

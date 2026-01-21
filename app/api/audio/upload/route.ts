@@ -9,6 +9,7 @@ import Tag from "@/lib/models/Tag";
 import { S3Service, extractAudioMetadata } from "@/lib/services/s3";
 import AudioConversionService from "@/lib/services/audioConversion";
 import { getSupportedMimeTypes, getFormatByExtension, SUPPORTED_AUDIO_FORMATS } from "@/lib/utils/audio-formats";
+import { getGatewayUrl, logEnvironmentConfig, checkGatewayHealth } from "@/lib/utils/environment-checker";
 import jwt from "jsonwebtoken";
 
 /**
@@ -28,6 +29,9 @@ function getDefaultVisibility(role: string, isBroadcastUpload: boolean = false):
 
 export async function POST(request: NextRequest) {
   try {
+    // Log environment configuration for debugging
+    logEnvironmentConfig();
+    
     // Check authentication and permissions
     const admin = await getCurrentAdmin();
     if (!admin) {
@@ -288,26 +292,37 @@ export async function POST(request: NextRequest) {
         );
 
         // Call EC2 gateway conversion service
-        const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
-        const conversionResponse = await fetch(`${gatewayUrl}/api/convert-audio`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${gatewayToken}`
-          },
-          body: JSON.stringify({
-            recordId: audioRecording._id.toString(),
-            originalKey: uploadResult.storageKey,
-            format: detectedFormat
-          })
-        });
+        const gatewayUrl = getGatewayUrl();
+        console.log(`🔍 Using gateway URL: ${gatewayUrl}`);
         
-        if (!conversionResponse.ok) {
-          console.error('Gateway conversion request failed:', await conversionResponse.text());
+        // Check if gateway is accessible before making the request
+        const healthCheck = await checkGatewayHealth();
+        if (!healthCheck.accessible) {
+          console.error(`❌ Gateway not accessible: ${healthCheck.error}`);
           // Don't fail the upload, just log the error
+          console.log('⚠️  Conversion will be skipped due to gateway unavailability');
         } else {
-          const conversionResult = await conversionResponse.json();
-          console.log('✅ Conversion job queued:', conversionResult.jobId);
+            const conversionResponse = await fetch(`${gatewayUrl}/api/convert-audio`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${gatewayToken}`
+            },
+            body: JSON.stringify({
+              recordId: audioRecording._id.toString(),
+              originalKey: uploadResult.storageKey,
+              format: detectedFormat
+            })
+          });
+          
+          if (!conversionResponse.ok) {
+            const errorText = await conversionResponse.text();
+            console.error('❌ Gateway conversion request failed:', errorText);
+            // Don't fail the upload, just log the error
+          } else {
+            const conversionResult = await conversionResponse.json();
+            console.log('✅ Conversion job queued:', conversionResult.jobId);
+          }
         }
       } catch (error) {
         console.error('Failed to trigger conversion on gateway:', error);

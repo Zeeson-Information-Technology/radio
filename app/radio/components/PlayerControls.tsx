@@ -72,6 +72,7 @@ export default function PlayerControls({
           src={liveData.streamUrl}
           preload="none"
           className="hidden"
+          crossOrigin="anonymous"
         />
 
         {/* Play/Pause Button */}

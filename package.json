@@ -17,7 +17,12 @@
     "seed:admin": "tsx scripts/seed-admin.ts",
     "install-ffmpeg": "bash scripts/install-ffmpeg.sh",
     "migrate:audio-conversion": "tsx scripts/migrate-audio-conversion.ts",
-    "test:conversion": "tsx scripts/test-conversion.ts"
+    "test:conversion": "tsx scripts/test-conversion.ts",
+    "env:local": "node scripts/switch-environment.js local",
+    "env:prod": "node scripts/switch-environment.js prod",
+    "env:status": "node scripts/switch-environment.js status",
+    "validate:deployment": "node scripts/validate-deployment.js",
+    "check:gateway": "node scripts/check-gateway-status.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.948.0",

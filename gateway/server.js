@@ -97,11 +97,15 @@ class BroadcastGateway {
 
   startServer() {
     this.server.listen(config.PORT, () => {
+      const isProduction = process.env.NODE_ENV === 'production';
+      const host = isProduction ? 'production-server' : 'localhost';
+      
       console.log(`🎙️ Broadcast Gateway listening on port ${config.PORT}`);
-      console.log(`📡 HTTP API: http://localhost:${config.PORT}`);
-      console.log(`🔌 WebSocket: ws://localhost:${config.PORT}`);
+      console.log(`📡 HTTP API: http://${host}:${config.PORT}`);
+      console.log(`🔌 WebSocket: ws://${host}:${config.PORT}`);
       console.log(`📡 Icecast target: ${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`);
       console.log(`🎵 Audio conversion service initialized`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   }
 
