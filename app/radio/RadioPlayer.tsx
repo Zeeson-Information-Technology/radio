@@ -6,6 +6,7 @@ import PlayerHeader from "./components/PlayerHeader";
 import StatusBanners from "./components/StatusBanners";
 import PlayerControls from "./components/PlayerControls";
 import ScheduleDisplay from "./components/ScheduleDisplay";
+import ClientScheduleDisplay from "./components/ClientScheduleDisplay";
 import { LiveData, ScheduleData } from "./types";
 import { useToast } from "@/lib/contexts/ToastContext";
 import { useConfirm } from "@/lib/hooks/useConfirm";
@@ -482,7 +483,13 @@ export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerPr
 
           {/* Schedule Sidebar */}
           <div className="lg:col-span-1">
-            <ScheduleDisplay scheduleData={scheduleData} />
+            {/* Debug: Show both server-side and client-side versions */}
+            <div className="space-y-6">            
+              {/* Client-side version (debug) */}
+              <div>
+                <ClientScheduleDisplay />
+              </div>
+            </div>
           </div>
         </div>
 
