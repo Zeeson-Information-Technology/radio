@@ -85,6 +85,32 @@ export async function POST(request: NextRequest) {
       await liveState.save();
     }
 
+    // Send real-time notification to listeners
+    try {
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      await fetch(`${baseUrl}/api/live/notify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`
+        },
+        body: JSON.stringify({
+          action: 'broadcast_event',
+          type: 'broadcast_stop',
+          isLive: false,
+          isMuted: false,
+          title: null,
+          lecturer: null,
+          startedAt: null,
+          currentAudioFile: null,
+          timestamp: new Date().toISOString()
+        })
+      });
+      console.log('📡 Sent broadcast stop notification to listeners');
+    } catch (notifyError) {
+      console.error('Failed to send broadcast stop notification:', notifyError);
+    }
+
     return NextResponse.json({
       ok: true,
       isLive: false,

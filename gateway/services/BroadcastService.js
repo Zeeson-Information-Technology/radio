@@ -147,13 +147,13 @@ class BroadcastService {
     // Clean up old test stream files first
     this.cleanupOldTestFiles();
     
-    // For local testing, check if we should output to file instead of Icecast
+    // For local testing, check if we should output to stdout instead of Icecast
     const isLocalTesting = process.env.NODE_ENV === 'development' && config.ICECAST_HOST === 'localhost';
     
     let ffmpegArgs;
     
     if (isLocalTesting) {
-      // Local testing: output to stdout for live streaming
+      // Local testing: output to stdout for live streaming via test stream route
       console.log('🧪 Local testing mode: outputting to stdout for live streaming');
       
       ffmpegArgs = [
@@ -189,6 +189,8 @@ class BroadcastService {
     } else {
       // Production: output to Icecast
       const icecastUrl = `icecast://source:${config.ICECAST_PASSWORD}@${config.ICECAST_HOST}:${config.ICECAST_PORT}${config.ICECAST_MOUNT}`;
+      
+      console.log(`🎙️ Production mode: streaming to Icecast at ${icecastUrl}`);
       
       ffmpegArgs = [
         // Input: Raw PCM from browser
@@ -256,32 +258,20 @@ class BroadcastService {
 
     // Handle FFmpeg events
     this.ffmpegProcess.on('spawn', () => {
-      console.log('✅ FFmpeg process started successfully');
+      console.log('✅ FFmpeg process spawned');
       clearTimeout(startupTimeout); // Clear the timeout since FFmpeg started
-      this.isStreaming = true;
       
-      // For local testing, pipe FFmpeg output to live stream
-      if (isLocalTesting && this.testStreamRoute && this.testStreamRoute.setLiveAudioData) {
-        console.log('🔄 Setting up live audio streaming from FFmpeg stdout');
-        
-        this.ffmpegProcess.stdout.on('data', (chunk) => {
-          // Send live audio data to test stream
-          this.testStreamRoute.setLiveAudioData(chunk);
-        });
-        
-        this.ffmpegProcess.stdout.on('end', () => {
-          console.log('📻 FFmpeg stdout ended');
-          if (this.testStreamRoute && this.testStreamRoute.stopLiveAudioStream) {
-            this.testStreamRoute.stopLiveAudioStream();
-          }
-        });
+      // CRITICAL FIX: Send stream_started immediately when FFmpeg spawns
+      // Don't wait for audio data - presenter should see "Streaming" status right away
+      // This prevents the "Preparing..." state from hanging
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'stream_started',
+          message: 'Live stream active',
+          config: audioConfig
+        }));
+        console.log('✅ Sent stream_started message to presenter');
       }
-      
-      ws.send(JSON.stringify({
-        type: 'stream_started',
-        message: 'Live stream active',
-        config: audioConfig
-      }));
     });
 
     this.ffmpegProcess.on('error', (error) => {
@@ -294,79 +284,82 @@ class BroadcastService {
       console.log(`🔚 FFmpeg exited with code ${code}, signal ${signal}`);
       this.isStreaming = false;
       
+      // Stop live audio stream
+      if (this.testStreamRoute && this.testStreamRoute.stopLiveAudioStream) {
+        this.testStreamRoute.stopLiveAudioStream();
+      }
+      
       // If FFmpeg exits immediately after spawn, it means there was a startup error
       if (code !== 0 && code !== null) {
-        console.error(`❌ FFmpeg failed to start properly (exit code: ${code})`);
+        console.error(`❌ FFmpeg failed with exit code: ${code}`);
         
         if (ws && ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({
             type: 'stream_error',
-            message: `FFmpeg failed to start (code ${code}). Please try again.`
+            message: `FFmpeg failed (code ${code}). Check logs for details.`
           }));
         }
       }
-      
-      // Log specific error codes for debugging
-      if (code === 234) {
-        console.error('❌ FFmpeg error 234: Cannot connect to Icecast server');
-        ws.send(JSON.stringify({
-          type: 'stream_error',
-          message: 'Cannot connect to streaming server. Please check Icecast configuration.'
-        }));
-      } else if (code === 1) {
-        console.error('❌ FFmpeg error 1: General encoding error');
-        ws.send(JSON.stringify({
-          type: 'stream_error',
-          message: 'Audio encoding error. Please try again.'
-        }));
-      } else if (code !== 0 && this.currentBroadcast) {
-        console.error(`❌ FFmpeg unexpected exit with code ${code}`);
-        ws.send(JSON.stringify({
-          type: 'stream_error',
-          message: `Stream error (code ${code}). Attempting to reconnect...`
-        }));
+    });
+
+    // Handle FFmpeg stdout (for local testing mode)
+    this.ffmpegProcess.stdout.on('data', (chunk) => {
+      if (isLocalTesting) {
+        // Mark as streaming once we get data
+        if (!this.isStreaming) {
+          console.log('✅ FFmpeg streaming started - audio data received');
+          this.isStreaming = true;
+          // Note: stream_started already sent in spawn handler
+        }
         
-        // Auto-restart if unexpected exit (but not for connection errors)
-        if (code !== 234) {
-          setTimeout(() => {
-            if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-              console.log('🔄 Attempting FFmpeg restart...');
-              this.startFFmpeg(ws, user, audioConfig);
-            }
-          }, 3000);
+        // Send live audio data to test stream
+        if (this.testStreamRoute && this.testStreamRoute.setLiveAudioData) {
+          this.testStreamRoute.setLiveAudioData(chunk);
         }
       }
     });
 
-    // Log FFmpeg output
-    this.ffmpegProcess.stdout.on('data', (data) => {
-      console.log('FFmpeg stdout:', data.toString());
+    this.ffmpegProcess.stdout.on('end', () => {
+      console.log('📻 FFmpeg stdout ended');
+      if (this.testStreamRoute && this.testStreamRoute.stopLiveAudioStream) {
+        this.testStreamRoute.stopLiveAudioStream();
+      }
     });
 
+    // Log FFmpeg stderr for debugging
     this.ffmpegProcess.stderr.on('data', (data) => {
       const output = data.toString();
-      console.log('FFmpeg stderr:', output);
       
-      // Check for successful connection to Icecast
-      if (output.includes('Stream #0:0') || output.includes('Opening')) {
-        ws.send(JSON.stringify({
-          type: 'icecast_connected',
-          message: 'Successfully connected to Icecast server'
-        }));
+      // Only log important messages, not every frame update
+      if (output.includes('Stream #') || output.includes('Opening') || output.includes('error') || output.includes('Error')) {
+        console.log('FFmpeg:', output.trim());
       }
       
-      // Detect streaming issues that cause "stops and repeats"
-      if (output.includes('Broken pipe') || output.includes('Connection reset')) {
-        console.error('🚨 FFmpeg connection issue detected:', output);
-        ws.send(JSON.stringify({
-          type: 'stream_warning',
-          message: 'Connection instability detected - attempting to stabilize'
-        }));
+      // Check for successful connection to Icecast (production mode)
+      if (!isLocalTesting && (output.includes('Stream #0:0') || output.includes('Opening'))) {
+        if (!this.isStreaming) {
+          console.log('✅ FFmpeg connected to Icecast - streaming started');
+          this.isStreaming = true;
+          
+          if (ws && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'stream_started',
+              message: 'Live stream active',
+              config: audioConfig
+            }));
+          }
+        }
       }
       
-      // Detect buffer underruns
-      if (output.includes('buffer underrun') || output.includes('dropping frame')) {
-        console.warn('⚠️ Audio buffer issue:', output);
+      // Detect connection errors
+      if (output.includes('Connection refused') || output.includes('Connection reset') || output.includes('Broken pipe')) {
+        console.error('🚨 FFmpeg connection error:', output);
+        if (ws && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'stream_error',
+            message: 'Connection error - check Icecast server'
+          }));
+        }
       }
     });
   }
@@ -486,6 +479,22 @@ class BroadcastService {
     try {
       // Check if FFmpeg stdin is writable before writing
       if (this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
+        // Log audio data write periodically (every 50 writes to avoid spam)
+        if (!this.audioWriteCount) {
+          this.audioWriteCount = 0;
+          this.audioWriteStartTime = Date.now();
+        }
+        
+        this.audioWriteCount++;
+        
+        if (this.audioWriteCount % 50 === 0) {
+          const elapsed = Date.now() - this.audioWriteStartTime;
+          const rate = (this.audioWriteCount / elapsed * 1000).toFixed(1);
+          console.log(`✍️ Audio data written to FFmpeg: ${this.audioWriteCount} chunks (${rate} chunks/sec), buffer size: ${audioBuffer.length} bytes`);
+        }
+        
+        // CRITICAL FIX: Ensure we're writing clean audio data
+        // If audio file just changed, there might be buffered data - flush it
         this.ffmpegProcess.stdin.write(audioBuffer);
       } else {
         console.warn('⚠️ FFmpeg stdin not writable, skipping audio data');
@@ -699,7 +708,17 @@ class BroadcastService {
     try {
       const { fileId, fileName, duration } = data;
 
-      // Update current broadcast state
+      // CRITICAL FIX: Clear any previous audio injection state
+      // This prevents audio mixing when replaying
+      if (this.currentBroadcast && this.currentBroadcast.currentAudioFile) {
+        console.log(`🔄 Clearing previous audio: ${this.currentBroadcast.currentAudioFile.title}`);
+        this.currentBroadcast.currentAudioFile = null;
+      }
+
+      // Small delay to ensure previous audio is fully cleared
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Update current broadcast state with new audio
       if (this.currentBroadcast) {
         this.currentBroadcast.currentAudioFile = {
           id: fileId,
@@ -768,15 +787,20 @@ class BroadcastService {
     }
 
     try {
-      // Clear current audio file from broadcast state
+      // CRITICAL FIX: Immediately clear audio file state to prevent mixing
+      const previousAudioFile = this.currentBroadcast?.currentAudioFile;
+      
       if (this.currentBroadcast) {
         this.currentBroadcast.currentAudioFile = null;
       }
 
-      // Update database state
+      // Update database state immediately
       await this.databaseService.updateLiveState({
         currentAudioFile: null
       });
+
+      // Small delay to ensure state is cleared before notifying
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       // Notify presenter
       if (ws && ws.readyState === ws.OPEN) {

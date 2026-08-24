@@ -151,7 +151,7 @@ export default function AudioPlayer({ recording, onClose }: AudioPlayerProps) {
           <UniversalAudioPlayer
             audioUrl={playbackData.audioUrl}
             title={playbackData.title}
-            format={playbackData.format} // This is now the correct playback format (mp3)
+            format={(playbackData.format || 'mp3').toLowerCase().trim()}
             conversionStatus={playbackData.conversionStatus}
             originalFormat={playbackData.originalFormat}
             onEnded={() => {}}

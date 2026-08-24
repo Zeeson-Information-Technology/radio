@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
 import Link from "next/link";
 import AudioUpload from "./AudioUpload";
+import AudioUploadBatch from "./AudioUploadBatch";
 import AudioList from "./AudioList";
 import AudioLibraryManager from "./AudioLibraryManager";
 
@@ -12,7 +13,7 @@ interface AudioLibraryPanelProps {
   admin: SerializedAdmin;
 }
 
-type TabType = "upload" | "library" | "lecturers" | "categories";
+type TabType = "upload" | "batch-upload" | "library" | "lecturers" | "categories";
 
 export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>("library");
@@ -23,7 +24,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab') as TabType;
-    if (tabParam && ['upload', 'library', 'lecturers', 'categories'].includes(tabParam)) {
+    if (tabParam && ['upload', 'batch-upload', 'library', 'lecturers', 'categories'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, []);
@@ -157,6 +158,17 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
               </button>
               
               <button
+                onClick={() => setActiveTab("batch-upload")}
+                className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+                  activeTab === "batch-upload"
+                    ? "text-emerald-700 bg-emerald-50 border-b-2 border-emerald-500"
+                    : "text-slate-600 hover:text-emerald-600 hover:bg-emerald-25"
+                }`}
+              >
+                📦 Batch Upload
+              </button>
+              
+              <button
                 onClick={() => setActiveTab("lecturers")}
                 className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
                   activeTab === "lecturers"
@@ -206,6 +218,18 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
                   </p>
                 </div>
                 <AudioUpload admin={admin} onUploadSuccess={() => setActiveTab("library")} />
+              </div>
+            )}
+
+            {activeTab === "batch-upload" && (
+              <div>
+                <div className="mb-4 sm:mb-6">
+                  <h2 className="text-lg sm:text-2xl font-bold text-slate-800 mb-2">Upload Multiple Audio Files</h2>
+                  <p className="text-sm sm:text-base text-slate-600">
+                    Upload multiple audio files at once. Each file can have its own title, speaker, and metadata.
+                  </p>
+                </div>
+                <AudioUploadBatch admin={admin} onUploadSuccess={() => setActiveTab("library")} />
               </div>
             )}
 

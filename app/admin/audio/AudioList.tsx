@@ -49,7 +49,9 @@ export default function AudioList({ admin }: AudioListProps) {
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
 
   // Use global modal system
-  const { openEditModal, openDeleteModal } = useAudioModals();
+  const { openEditModal, openDeleteModal } = useAudioModals({
+    adminRole: admin.role
+  });
   const { showSuccess, showError } = useToast();
 
   // Conversion notifications

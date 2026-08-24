@@ -40,13 +40,15 @@ interface EditAudioModalProps {
   onSave: (updatedFile: Partial<AudioFile>) => void;
   apiEndpoint?: string;
   isLiveAudio?: boolean;
+  adminRole?: string; // Add admin role prop
 }
 
 export default function EditAudioModal({ 
   audioFile, 
   onSave, 
   apiEndpoint = '/api/audio/recordings',
-  isLiveAudio = false 
+  isLiveAudio = false,
+  adminRole = 'admin' // Default to admin role
 }: EditAudioModalProps) {
   const { closeModal } = useModal();
   const { showSuccess, showError } = useToast();
@@ -249,19 +251,21 @@ export default function EditAudioModal({
           <p className="text-xs text-gray-500 mt-1">Separate multiple tags with commas</p>
         </div>
 
-        {/* Broadcast Ready Toggle - Only for live audio */}
-        {isLiveAudio && (
+        {/* Broadcast Ready Toggle - Only for live audio and admins */}
+        {isLiveAudio && (adminRole === 'super_admin' || adminRole === 'admin') && (
           <div className="lg:col-span-3 mt-6">
-            <label className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <label className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border-2 border-amber-200">
               <input
                 type="checkbox"
                 checked={formData.broadcastReady}
                 onChange={(e) => setFormData(prev => ({ ...prev, broadcastReady: e.target.checked }))}
-                className="rounded text-blue-600 focus:ring-blue-500"
+                className="rounded text-emerald-600 focus:ring-emerald-500"
               />
               <div>
-                <div className="font-medium text-blue-900">📡 Broadcast Ready</div>
-                <div className="text-sm text-blue-700">Make this audio available for live broadcast injection</div>
+                <div className="font-medium text-amber-800">
+                  📡 Broadcast Ready
+                </div>
+                <div className="text-sm text-amber-700">Make this audio available for live broadcast injection</div>
               </div>
             </label>
           </div>

@@ -5,19 +5,17 @@ import Navigation from "./components/Navigation";
 import PlayerHeader from "./components/PlayerHeader";
 import StatusBanners from "./components/StatusBanners";
 import PlayerControls from "./components/PlayerControls";
-import ScheduleDisplay from "./components/ScheduleDisplay";
 import ClientScheduleDisplay from "./components/ClientScheduleDisplay";
-import { LiveData, ScheduleData } from "./types";
+import { LiveData } from "./types";
 import { useToast } from "@/lib/contexts/ToastContext";
 import { useConfirm } from "@/lib/hooks/useConfirm";
 
 interface RadioPlayerProps {
   initialData: LiveData;
-  scheduleData: ScheduleData;
 }
 
-export default function RadioPlayer({ initialData, scheduleData }: RadioPlayerProps) {
-  const { showError, showWarning } = useToast();
+export default function RadioPlayer({ initialData }: RadioPlayerProps) {
+  const { showError } = useToast();
   const { confirm } = useConfirm();
   const [isPlaying, setIsPlaying] = useState(false);
   

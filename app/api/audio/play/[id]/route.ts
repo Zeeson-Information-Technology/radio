@@ -70,6 +70,16 @@ export async function GET(
     const sourceKey = usePlaybackUrl ? 
       recording.playbackUrl?.split('.amazonaws.com/')[1] : 
       recording.storageKey;
+    
+    // Determine the format to return
+    const responseFormat = (usePlaybackUrl ? (recording.playbackFormat || 'mp3') : (recording.format || 'mp3')) || 'mp3';
+    console.log('📤 Play endpoint response format:', {
+      usePlaybackUrl,
+      recordingPlaybackFormat: recording.playbackFormat,
+      recordingFormat: recording.format,
+      responseFormat,
+      conversionStatus: recording.conversionStatus
+    });
 
     if (!sourceUrl) {
       return NextResponse.json(
@@ -87,44 +97,25 @@ export async function GET(
       sourceUrl,
       sourceKey,
       hasStorageKey: !!recording.storageKey,
-      hasPlaybackUrl: !!recording.playbackUrl
+      hasPlaybackUrl: !!recording.playbackUrl,
+      preferredStorage: recording.preferredStorage || 'digitalocean',
+      hasCloudinaryUrl: !!recording.cloudinaryUrl
     });
     
-    // Generate signed URL for S3 access (avoids CORS issues)
-    if (sourceKey) {
-      try {
-        const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
-        const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
-        
-        const s3Client = new S3Client({
-          region: process.env.AWS_REGION || "us-east-1",
-          credentials: {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-          },
-        });
-
-        const command = new GetObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET || "almanhaj-radio-audio",
-          Key: sourceKey,
-        });
-
-        // Generate signed URL valid for 1 hour
-        audioUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-        console.log("✅ Generated signed URL successfully");
-      } catch (error) {
-        console.error("❌ Error generating signed URL:", error);
-        console.log("📋 S3 Config:", {
-          bucket: process.env.AWS_S3_BUCKET,
-          region: process.env.AWS_REGION,
-          hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
-          hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY
-        });
-        // Fall back to direct URL (may have CORS issues)
-        audioUrl = sourceUrl;
-      }
+    // Determine which storage to serve from
+    const preferredStorage = recording.preferredStorage || 'digitalocean';
+    
+    if (preferredStorage === 'cloudinary' && recording.cloudinaryUrl) {
+      // Serve from Cloudinary (fallback or preferred option)
+      audioUrl = recording.cloudinaryUrl;
+      console.log("☁️ Using Cloudinary URL:", audioUrl);
+    } else if (sourceKey) {
+      // Default: Use DigitalOcean CDN URL for playback (has better CORS support)
+      const region = process.env.AWS_REGION || "lon1";
+      const bucket = process.env.AWS_S3_BUCKET || "almanhaj-radio";
+      audioUrl = `https://${bucket}.${region}.cdn.digitaloceanspaces.com/${sourceKey}`;
+      console.log("✅ Using DigitalOcean CDN URL:", audioUrl);
     } else {
-      // No storage key, use direct URLs as fallback
       audioUrl = sourceUrl;
     }
     
@@ -143,14 +134,14 @@ export async function GET(
         title: recording.title,
         lecturerName: recording.lecturerName,
         duration: recording.duration,
-        format: usePlaybackUrl ? recording.playbackFormat : recording.format,
+        format: responseFormat,
         originalFormat: recording.originalFormat || recording.format,
         conversionStatus: recording.conversionStatus,
         audioUrl,
         playCount: recording.playCount + 1 // Return updated count
       }
     });
-
+    
   } catch (error) {
     console.error("Error serving audio:", error);
     return NextResponse.json(
@@ -159,3 +150,6 @@ export async function GET(
     );
   }
 }
+
+// Add logging middleware
+console.log('📊 Play endpoint initialized');

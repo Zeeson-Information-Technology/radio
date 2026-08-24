@@ -112,9 +112,11 @@ class AudioInjectionSystem {
     if (this.playbackState.isPlaying) {
       console.log(`🔄 Switching from "${this.playbackState.currentFile?.title}" to "${audioFile.title}"`);
       
-      // IMPROVED: Wait a moment for cleanup to complete before starting new audio
+      // CRITICAL FIX: Complete cleanup before starting new audio
       this.cleanupCurrentAudio();
-      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay for cleanup
+      
+      // Wait for cleanup to complete AND for any buffered audio to drain
+      await new Promise(resolve => setTimeout(resolve, 200)); // Increased from 100ms to 200ms
     }
 
     try {
@@ -245,6 +247,11 @@ class AudioInjectionSystem {
         this.audioElement.currentTime = 0;
         this.audioElement.src = '';
         this.audioElement.load(); // Force cleanup of internal state
+        
+        // Additional cleanup: remove from DOM if it was added
+        if (this.audioElement.parentNode) {
+          this.audioElement.parentNode.removeChild(this.audioElement);
+        }
       } catch (error) {
         console.warn('⚠️ Error cleaning up audio element:', error);
       }

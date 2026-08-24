@@ -92,62 +92,69 @@ router.get('/test-stream', (req, res) => {
       activeStreams.delete(res);
     });
     
-    // If no live audio is active, serve the latest file as fallback
+    // If no live audio is active, wait for it to become active
     if (!audioStreamActive) {
-      console.log('📻 No live stream active, serving latest file as fallback');
+      console.log('⏳ No live stream active yet - waiting for audio data...');
       
-      // Find the most recent test stream file as fallback
-      const gatewayDir = path.dirname(__dirname);
-      const files = fs.readdirSync(gatewayDir)
-        .filter(file => file.startsWith('test-stream-') && file.endsWith('.mp3'))
-        .map(file => ({
-          name: file,
-          path: path.join(gatewayDir, file),
-          mtime: fs.statSync(path.join(gatewayDir, file)).mtime
-        }))
-        .sort((a, b) => b.mtime - a.mtime);
-
-      if (files.length === 0) {
-        console.log('❌ No test stream files found');
-        activeStreams.delete(res);
-        return res.status(404).json({ error: 'No test stream available - start a broadcast first' });
-      }
-
-      const latestFile = files[0];
-      const fileAge = Date.now() - latestFile.mtime.getTime();
+      let waitTime = 0;
+      const maxWaitTime = 10000; // Wait up to 10 seconds
+      const checkInterval = 100; // Check every 100ms
       
-      console.log(`📻 Serving fallback file: ${latestFile.name} (${Math.round(fileAge/1000)}s old)`);
-      
-      // Stream the file
-      const fileStream = fs.createReadStream(latestFile.path);
-      
-      fileStream.on('error', (error) => {
-        console.error('❌ Error streaming file:', error);
-        activeStreams.delete(res);
-      });
-      
-      fileStream.on('end', () => {
-        activeStreams.delete(res);
-      });
-      
-      fileStream.pipe(res);
-    } else {
-      console.log('📻 Live stream active, client connected for real-time audio');
-      
-      // Send any buffered audio data to new client
-      if (liveAudioBuffer) {
-        try {
-          res.write(liveAudioBuffer);
-        } catch (error) {
-          console.warn('Error sending buffer to new client:', error.message);
+      const waitForAudio = setInterval(() => {
+        waitTime += checkInterval;
+        
+        if (audioStreamActive) {
+          // Audio stream is now active!
+          clearInterval(waitForAudio);
+          console.log('✅ Audio stream became active - sending buffered data');
+          
+          // Send any buffered audio data to client
+          if (liveAudioBuffer) {
+            try {
+              res.write(liveAudioBuffer);
+            } catch (error) {
+              console.warn('Error sending buffer to client:', error.message);
+              activeStreams.delete(res);
+              return;
+            }
+          }
+          
+          console.log(`📻 Client ready for live stream (${activeStreams.size} total connections)`);
+        } else if (waitTime >= maxWaitTime) {
+          // Timeout - no audio stream started
+          clearInterval(waitForAudio);
+          console.log('❌ Audio stream timeout - no broadcast available');
           activeStreams.delete(res);
-          return;
+          
+          if (!res.headersSent) {
+            res.status(503).json({ 
+              error: 'No live broadcast available',
+              message: 'Please wait for the presenter to start broadcasting'
+            });
+          } else {
+            res.end();
+          }
         }
-      }
+      }, checkInterval);
       
-      // Client is now connected and will receive live audio via setLiveAudioData
-      console.log(`📻 Client ready for live stream (${activeStreams.size} total connections)`);
+      return;
     }
+    
+    console.log('📻 Live stream active, client connected for real-time audio');
+    
+    // Send any buffered audio data to new client
+    if (liveAudioBuffer) {
+      try {
+        res.write(liveAudioBuffer);
+      } catch (error) {
+        console.warn('Error sending buffer to new client:', error.message);
+        activeStreams.delete(res);
+        return;
+      }
+    }
+    
+    // Client is now connected and will receive live audio via setLiveAudioData
+    console.log(`📻 Client ready for live stream (${activeStreams.size} total connections)`);
     
   } catch (error) {
     console.error('❌ Error serving test stream:', error);

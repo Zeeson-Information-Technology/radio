@@ -52,17 +52,23 @@ export async function POST(request: NextRequest) {
 
     // Send real-time notification to listeners (Requirements 2.4)
     try {
-      await fetch(`${process.env.NEXTAUTH_URL}/api/live/notify`, {
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      await fetch(`${baseUrl}/api/live/notify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`
         },
         body: JSON.stringify({
+          action: 'broadcast_event',
           type: 'broadcast_muted',
-          timestamp: liveState.mutedAt,
+          isMuted: true,
+          mutedAt: liveState.mutedAt?.toISOString(),
+          timestamp: new Date().toISOString(),
           sessionId: liveState._id.toString()
         })
       });
+      console.log('📡 Sent mute notification to listeners');
     } catch (notifyError) {
       console.error('Failed to send mute notification:', notifyError);
     }

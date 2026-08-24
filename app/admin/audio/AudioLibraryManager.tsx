@@ -76,7 +76,8 @@ export default function AudioLibraryManager({ admin }: AudioLibraryManagerProps)
   // Audio modals
   const { openEditModal, openDeleteModal } = useAudioModals({
     isLiveAudio: false,
-    apiEndpoint: '/api/audio/recordings'
+    apiEndpoint: '/api/audio/recordings',
+    adminRole: admin.role
   });
 
   // Toast notifications

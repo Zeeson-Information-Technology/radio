@@ -4,9 +4,10 @@ import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 
-// AWS S3 Configuration
+// AWS S3 Configuration (DigitalOcean Spaces is S3-compatible)
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
+  region: process.env.AWS_REGION || "lon1",
+  endpoint: process.env.AWS_ENDPOINT || "https://lon1.digitaloceanspaces.com",
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
@@ -14,7 +15,9 @@ const s3Client = new S3Client({
 });
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET || "almanhaj-radio-audio";
-const CDN_URL = process.env.AWS_CLOUDFRONT_URL || `https://${BUCKET_NAME}.s3.amazonaws.com`;
+const REGION = process.env.AWS_REGION || "lon1";
+// DigitalOcean Spaces CDN URL format (better for CORS): https://bucket-name.region.cdn.digitaloceanspaces.com
+const CDN_URL = process.env.AWS_CLOUDFRONT_URL || `https://${BUCKET_NAME}.${REGION}.cdn.digitaloceanspaces.com`;
 
 export interface UploadResult {
   storageKey: string;
@@ -154,6 +157,7 @@ export class S3Service {
       ContentType: contentType,
       ContentDisposition: getContentDisposition(originalName),
       CacheControl: "max-age=31536000", // 1 year cache
+      ACL: "public-read" as const, // Make files publicly readable on DigitalOcean Spaces
       Metadata: {
         originalName: getSafeMetadataValue(originalName),
         uploadedAt: new Date().toISOString(),
@@ -166,7 +170,7 @@ export class S3Service {
       const command = new PutObjectCommand(uploadParams);
       await s3Client.send(command);
 
-      const storageUrl = `https://${BUCKET_NAME}.s3.amazonaws.com/${storageKey}`;
+      const storageUrl = `https://${BUCKET_NAME}.${REGION}.digitaloceanspaces.com/${storageKey}`;
       const cdnUrl = `${CDN_URL}/${storageKey}`;
 
       console.log(`🎵 S3 Upload: Successfully uploaded ${storageKey}`);

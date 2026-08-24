@@ -67,12 +67,15 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   const [tags, setTags] = useState("");
   const [year, setYear] = useState("");
   
+  // Storage preference (DigitalOcean by default)
+  const [preferredStorage, setPreferredStorage] = useState<"digitalocean" | "cloudinary">("digitalocean");
+  
   // New access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
   const [visibility, setVisibility] = useState<'private' | 'shared' | 'public'>(
     admin.role === 'super_admin' || admin.role === 'admin' ? 'public' : 'private'
   );
   const [selectedPresenters, setSelectedPresenters] = useState<string[]>([]);
-  const [broadcastReady, setBroadcastReady] = useState(true);
+  const [broadcastReady, setBroadcastReady] = useState(false);
   const [availablePresenters, setAvailablePresenters] = useState<Array<{_id: string; name: string; email: string}>>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -220,9 +223,9 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
     setDescription("");
     setLecturerName("");
     setType("lecture");
-
     setTags("");
     setYear("");
+    setPreferredStorage("digitalocean");
     setUploadStatus("idle");
     setUploadProgress({ loaded: 0, total: 0, percentage: 0 });
     setCurrentStage({ name: "preparing", progress: 0, description: "Preparing upload..." });
@@ -274,6 +277,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
       // Add new access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
       formData.append("visibility", visibility);
       formData.append("broadcastReady", broadcastReady.toString());
+      formData.append("preferredStorage", preferredStorage);
       if (visibility === 'shared' && selectedPresenters.length > 0) {
         formData.append("sharedWith", JSON.stringify(selectedPresenters));
       }
@@ -561,6 +565,45 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                 </p>
               </div>
 
+              {/* Storage Preference */}
+              <div className="md:col-span-2 border-t border-slate-200 pt-6">
+                <h4 className="text-lg font-semibold text-slate-800 mb-4">☁️ Storage Preference</h4>
+                <p className="text-sm text-slate-600 mb-4">
+                  Files are always backed up to both services. Choose which one to serve from by default.
+                </p>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="storage"
+                      value="digitalocean"
+                      checked={preferredStorage === 'digitalocean'}
+                      onChange={(e) => setPreferredStorage(e.target.value as 'digitalocean')}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-800">🏢 DigitalOcean Spaces (Recommended)</div>
+                      <div className="text-sm text-slate-600">$6/mo, regional CDN, faster for your users</div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="storage"
+                      value="cloudinary"
+                      checked={preferredStorage === 'cloudinary'}
+                      onChange={(e) => setPreferredStorage(e.target.value as 'cloudinary')}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-800">☁️ Cloudinary (Backup)</div>
+                      <div className="text-sm text-slate-600">Free tier available, global CDN, automatic scaling</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               {/* Access Control Section (Requirements 7.1, 7.2, 8.1, 8.2) */}
               <div className="md:col-span-2 border-t border-slate-200 pt-6">
                 <h4 className="text-lg font-semibold text-slate-800 mb-4">Access & Sharing</h4>
@@ -669,23 +712,27 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                   </div>
                 )}
 
-                {/* Broadcast Ready */}
-                <div>
-                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={broadcastReady}
-                      onChange={(e) => setBroadcastReady(e.target.checked)}
-                      className="text-emerald-600 focus:ring-emerald-500 rounded"
-                    />
-                    <div>
-                      <div className="font-medium text-slate-800">📡 Broadcast Ready</div>
-                      <div className="text-sm text-slate-600">
-                        Mark this audio as suitable for live broadcast injection
+                {/* Broadcast Ready - Admin and Super Admin */}
+                {(admin.role === "super_admin" || admin.role === "admin") && (
+                  <div>
+                    <label className="flex items-center gap-3 p-3 border-2 border-amber-200 bg-amber-50 rounded-lg hover:bg-amber-100 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={broadcastReady}
+                        onChange={(e) => setBroadcastReady(e.target.checked)}
+                        className="text-emerald-600 focus:ring-emerald-500 rounded"
+                      />
+                      <div>
+                        <div className="font-medium text-amber-800">
+                          📡 Broadcast Ready
+                        </div>
+                        <div className="text-sm text-amber-700">
+                          Mark this audio as suitable for live broadcast injection
+                        </div>
                       </div>
-                    </div>
-                  </label>
-                </div>
+                    </label>
+                  </div>
+                )}
               </div>
             </div>
           </div>

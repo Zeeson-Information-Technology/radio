@@ -278,6 +278,7 @@ export default function BroadcastControlPanel({
         onSave={handleSaveAudio}
         apiEndpoint="/api/audio/recordings"
         isLiveAudio={true}
+        adminRole={admin.role}
       />
     );
   }, [admin, openModal, getTypeIcon]);

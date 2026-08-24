@@ -37,11 +37,12 @@ interface AudioFile {
 interface UseAudioModalsOptions {
   isLiveAudio?: boolean;
   apiEndpoint?: string;
+  adminRole?: string;
 }
 
 export function useAudioModals(options: UseAudioModalsOptions = {}) {
   const { openModal } = useModal();
-  const { isLiveAudio = false, apiEndpoint } = options;
+  const { isLiveAudio = false, apiEndpoint, adminRole = 'admin' } = options;
 
   const openEditModal = (
     audioFile: AudioFile, 
@@ -53,6 +54,7 @@ export function useAudioModals(options: UseAudioModalsOptions = {}) {
         onSave={onSave}
         apiEndpoint={apiEndpoint}
         isLiveAudio={isLiveAudio}
+        adminRole={adminRole}
       />
     );
   };

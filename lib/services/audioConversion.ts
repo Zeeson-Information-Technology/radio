@@ -4,12 +4,22 @@ import AudioRecording from '../models/AudioRecording';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { getFormatByExtension } from '@/lib/utils/audio-formats';
 
 export interface ConversionJob {
   recordingId: string;
   inputUrl: string;
   outputKey: string;
   attempts: number;
+}
+
+export interface ConversionResult {
+  success: boolean;
+  convertedBuffer?: Buffer;
+  originalFormat: string;
+  targetFormat: string;
+  duration?: number;
+  error?: string;
 }
 
 export class AudioConversionService {
@@ -258,6 +268,56 @@ export class AudioConversionService {
       queueLength: this.processingQueue.length,
       isProcessing: this.isProcessing
     };
+  }
+}
+
+/**
+ * Utility function: Check if a format needs conversion for web playback
+ * Uses file extension to determine format
+ */
+export function needsConversionByExtension(fileExtension: string): boolean {
+  const formatInfo = getFormatByExtension(fileExtension);
+  if (!formatInfo) return true;
+  
+  // Formats that need conversion due to poor browser support
+  const needsConversionFormats = ['amr', 'amr-wb', '3gp', '3gp2', 'wma'];
+  return needsConversionFormats.includes(formatInfo.extension);
+}
+
+/**
+ * Utility function: Get the target format for conversion
+ */
+export function getTargetFormat(originalFormat: string): string {
+  // Convert everything to MP3 for maximum compatibility
+  return 'mp3';
+}
+
+/**
+ * Utility function: Get converted file name
+ */
+export function getConvertedFileName(originalFileName: string, targetFormat: string): string {
+  const nameWithoutExt = originalFileName.replace(/\.[^/.]+$/, '');
+  return `${nameWithoutExt}_converted.${targetFormat}`;
+}
+
+/**
+ * Utility function: Estimate conversion time (for progress indication)
+ */
+export function estimateConversionTime(fileSizeBytes: number, originalFormat: string): number {
+  // Rough estimates in seconds based on file size and format complexity
+  const baseFactor = fileSizeBytes / (1024 * 1024); // MB
+  
+  switch (originalFormat.toLowerCase()) {
+    case 'amr':
+    case 'amr-wb':
+      return Math.max(5, baseFactor * 2); // AMR is usually small but slow to decode
+    case '3gp':
+    case '3gp2':
+      return Math.max(3, baseFactor * 1.5);
+    case 'wma':
+      return Math.max(4, baseFactor * 1.8);
+    default:
+      return Math.max(2, baseFactor * 1.2);
   }
 }
 

@@ -140,6 +140,20 @@ class WebSocketHandler {
 
   handleMessage(ws, user, message) {
     try {
+      // Log message type periodically to debug
+      if (!this.messageTypeLogCount) {
+        this.messageTypeLogCount = 0;
+        this.messageTypeLogStartTime = Date.now();
+      }
+      
+      this.messageTypeLogCount++;
+      
+      if (this.messageTypeLogCount % 100 === 0) {
+        const elapsed = Date.now() - this.messageTypeLogStartTime;
+        const rate = (this.messageTypeLogCount / elapsed * 1000).toFixed(1);
+        console.log(`📨 Message type: ${typeof message}, constructor: ${message?.constructor?.name}, rate: ${rate} msg/sec`);
+      }
+      
       // Handle different message types
       if (typeof message === 'string') {
         // String JSON control message
@@ -264,11 +278,34 @@ class WebSocketHandler {
 
   handleAudioData(ws, user, audioBuffer) {
     const streamingStatus = this.broadcastService.getStreamingStatus();
-    if (!streamingStatus.isStreaming || !streamingStatus.hasFFmpeg) {
+    
+    // CRITICAL FIX: In local testing mode, we should write audio data even if isStreaming is false
+    // isStreaming will be set to true once FFmpeg receives the first audio chunk
+    // We need to write data to FFmpeg to make it start streaming
+    if (!streamingStatus.hasFFmpeg || !streamingStatus.hasBroadcast) {
+      // Only skip if FFmpeg process doesn't exist or no broadcast session
+      if (!this.lastAudioDataWarning || Date.now() - this.lastAudioDataWarning > 1000) {
+        console.warn(`⚠️ Audio data received but FFmpeg not ready. Status:`, streamingStatus);
+        this.lastAudioDataWarning = Date.now();
+      }
       return;
     }
 
     try {
+      // Log audio data reception periodically (every 50 chunks to avoid spam)
+      if (!this.audioDataChunkCount) {
+        this.audioDataChunkCount = 0;
+        this.audioDataStartTime = Date.now();
+      }
+      
+      this.audioDataChunkCount++;
+      
+      if (this.audioDataChunkCount % 50 === 0) {
+        const elapsed = Date.now() - this.audioDataStartTime;
+        const rate = (this.audioDataChunkCount / elapsed * 1000).toFixed(1);
+        console.log(`📊 Audio data flowing: ${this.audioDataChunkCount} chunks received (${rate} chunks/sec), buffer size: ${audioBuffer.length} bytes`);
+      }
+      
       // Send audio data to broadcast service
       this.broadcastService.handleAudioData(audioBuffer);
     } catch (error) {

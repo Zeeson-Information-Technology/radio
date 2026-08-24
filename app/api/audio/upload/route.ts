@@ -7,6 +7,7 @@ import Lecturer from "@/lib/models/Lecturer";
 import Category from "@/lib/models/Category";
 import Tag from "@/lib/models/Tag";
 import { S3Service, extractAudioMetadata } from "@/lib/services/s3";
+import { CloudinaryService } from "@/lib/services/cloudinary";
 import AudioConversionService from "@/lib/services/audioConversion";
 import { getSupportedMimeTypes, getFormatByExtension, SUPPORTED_AUDIO_FORMATS } from "@/lib/utils/audio-formats";
 import { getGatewayUrl, logEnvironmentConfig, checkGatewayHealth } from "@/lib/utils/environment-checker";
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
     const visibility = formData.get("visibility") as string || getDefaultVisibility(admin.role, isBroadcastUpload);
     const sharedWith = formData.get("sharedWith") as string; // JSON array of presenter IDs
     const broadcastReady = formData.get("broadcastReady") === "true";
+    const preferredStorage = (formData.get("preferredStorage") as string) || "digitalocean";
 
     // Log upload attempt for debugging
     console.log(`🎵 Upload attempt: ${file?.name} (${file?.size ? (file.size / (1024 * 1024)).toFixed(1) : 'unknown'}MB)`);
@@ -143,25 +145,46 @@ export async function POST(request: NextRequest) {
     
     // Initialize services
     const s3Service = S3Service.getInstance();
+    const cloudinaryService = CloudinaryService.getInstance();
     const conversionService = AudioConversionService.getInstance();
     
     // Determine if file needs conversion
+    // AMR, 3GP, WMA not supported by browsers - convert to MP3 for web playback
     const needsConversion = AudioConversionService.needsConversion(detectedFormat);
     
-    // Upload original file to S3
-    console.log(`🎵 Starting S3 upload for: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
-    const originalKey = s3Service.generateOriginalKey(file.name);
+    // Upload to both DigitalOcean Spaces (primary) and Cloudinary (secondary) in parallel
+    console.log(`🎵 Starting parallel upload to both DigitalOcean Spaces and Cloudinary for: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
     
-    let uploadResult;
+    let s3Result;
+    let cloudinaryResult;
+    let uploadError;
+    
+    // Upload to DigitalOcean Spaces (primary storage)
+    // Cloudinary disabled for now - free tier has 10MB limit, audio files are larger
+    console.log(`🎵 Uploading to DigitalOcean Spaces (Cloudinary disabled - free tier 10MB limit)`);
+    
+    let s3Result;
+    let cloudinaryResult = null; // Disabled
+    let uploadError;
+    
     try {
-      uploadResult = await s3Service.uploadFromFile(file, originalKey, file.type);
-      console.log(`🎵 S3 upload completed successfully: ${originalKey}`);
+      const originalKey = s3Service.generateOriginalKey(file.name);
+      s3Result = await s3Service.uploadFromFile(file, originalKey, file.type);
+      console.log(`✅ DigitalOcean Spaces upload completed: ${originalKey}`);
     } catch (error) {
-      console.error(`🎵 S3 upload failed for ${file.name}:`, error);
+      console.error(`❌ DigitalOcean Spaces upload failed:`, error);
+      uploadError = error;
+      throw error;
+    }
+    
+    
+    // Extract results
+    if (!s3Result) {
+      console.error('❌ DigitalOcean Spaces upload failed');
       return NextResponse.json(
         { 
           success: false, 
-          message: "Failed to upload file to storage. Please try again or contact support if the issue persists." 
+          message: "Failed to upload file to DigitalOcean Spaces. Please try again or contact support." 
         },
         { status: 500 }
       );
@@ -171,9 +194,6 @@ export async function POST(request: NextRequest) {
     console.log("🎵 Extracting audio metadata for:", file.name);
     const audioMetadata = await extractAudioMetadata(file);
     console.log("🎵 Extracted metadata:", audioMetadata);
-
-    // Find or create lecturer
-    const lecturer = await Lecturer.findOrCreate(lecturerName.trim(), admin._id);
 
     // Find or create default category based on type
     const defaultCategoryNames = {
@@ -223,6 +243,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Log what we're about to save
+    console.log('📝 About to save AudioRecording with:', {
+      storage: 'digitalocean-only',
+      cloudinaryDisabled: 'free-tier-10mb-limit',
+      preferredStorage: 'digitalocean',
+      s3Result: !!s3Result
+    });
+
     // Create audio recording with conversion support
     const audioRecording = new AudioRecording({
       title: title.trim(),
@@ -235,21 +263,28 @@ export async function POST(request: NextRequest) {
       year: year ? parseInt(year) : undefined,
       fileName: file.name,
       originalFileName: file.name,
-      fileSize: uploadResult.fileSize,
+      fileSize: s3Result.fileSize,
       duration: audioMetadata.duration,
       format: detectedFormat,
       bitrate: audioMetadata.bitrate,
       sampleRate: audioMetadata.sampleRate,
-      storageKey: uploadResult.storageKey,
-      storageUrl: uploadResult.storageUrl,
-      cdnUrl: uploadResult.cdnUrl,
       
-      // Conversion fields
-      originalUrl: uploadResult.storageUrl,
+      // DigitalOcean Spaces (primary storage)
+      storageKey: s3Result.storageKey,
+      storageUrl: s3Result.storageUrl,
+      cdnUrl: s3Result.cdnUrl,
+      
+      // Cloudinary disabled - free tier has 10MB limit for audio
+      cloudinaryUrl: undefined,
+      cloudinaryPublicId: undefined,
+      preferredStorage: 'digitalocean' as const,
+      
+      // Conversion fields - convert AMR/3GP/WMA to MP3 for browser playback
+      originalUrl: s3Result.storageUrl,
       originalFormat: detectedFormat,
       playbackFormat: needsConversion ? 'mp3' : detectedFormat,
       conversionStatus: needsConversion ? 'pending' : 'ready',
-      playbackUrl: needsConversion ? undefined : uploadResult.storageUrl,
+      playbackUrl: needsConversion ? undefined : s3Result.storageUrl,
       
       // Access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
       visibility: visibility as 'private' | 'shared' | 'public',
@@ -258,13 +293,22 @@ export async function POST(request: NextRequest) {
       
       accessLevel: "public",
       createdBy: admin._id,
-      status: "active", // File successfully uploaded to S3
+      status: "active", // File successfully uploaded to storage
       isPublic: true
     });
 
     await audioRecording.save();
 
-    // Trigger conversion if needed
+    console.log('📝 Audio recording saved with:', {
+      _id: audioRecording._id,
+      format: audioRecording.format,
+      playbackFormat: audioRecording.playbackFormat,
+      originalFormat: audioRecording.originalFormat,
+      conversionStatus: audioRecording.conversionStatus,
+      needsConversion
+    });
+
+    // Trigger conversion if needed (AMR/3GP/WMA → MP3 for browser playback)
     if (needsConversion) {
       console.log(`🎵 Triggering conversion for ${detectedFormat} file:`, audioRecording._id);
       
@@ -291,7 +335,7 @@ export async function POST(request: NextRequest) {
           }
         );
 
-        // Call EC2 gateway conversion service
+        // Call gateway conversion service
         const gatewayUrl = getGatewayUrl();
         console.log(`🔍 Using gateway URL: ${gatewayUrl}`);
         
@@ -299,10 +343,9 @@ export async function POST(request: NextRequest) {
         const healthCheck = await checkGatewayHealth();
         if (!healthCheck.accessible) {
           console.error(`❌ Gateway not accessible: ${healthCheck.error}`);
-          // Don't fail the upload, just log the error
-          console.log('⚠️  Conversion will be skipped due to gateway unavailability');
+          console.log('⚠️  Conversion will be skipped due to gateway unavailability - file will not be playable on browsers');
         } else {
-            const conversionResponse = await fetch(`${gatewayUrl}/api/convert-audio`, {
+          const conversionResponse = await fetch(`${gatewayUrl}/api/convert-audio`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -318,7 +361,6 @@ export async function POST(request: NextRequest) {
           if (!conversionResponse.ok) {
             const errorText = await conversionResponse.text();
             console.error('❌ Gateway conversion request failed:', errorText);
-            // Don't fail the upload, just log the error
           } else {
             const conversionResult = await conversionResponse.json();
             console.log('✅ Conversion job queued:', conversionResult.jobId);
@@ -326,7 +368,6 @@ export async function POST(request: NextRequest) {
         }
       } catch (error) {
         console.error('Failed to trigger conversion on gateway:', error);
-        // Don't fail the upload, just log the error
       }
     }
 
@@ -347,11 +388,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: needsConversion 
-        ? "Audio uploaded successfully. Conversion to MP3 in progress for web playback."
+        ? "Audio uploaded successfully. Converting to MP3 for web browser playback..."
         : "Audio uploaded successfully",
       recordingId: audioRecording._id,
       status: "active",
       conversionStatus: audioRecording.conversionStatus,
+      format: audioRecording.format,
+      playbackFormat: audioRecording.playbackFormat,
       needsConversion,
       duration: audioMetadata.duration,
       fileSize: uploadResult.fileSize,

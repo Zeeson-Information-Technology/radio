@@ -818,9 +818,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       console.log(`🌐 Browser: ${navigator.userAgent.includes('Firefox') ? 'Firefox' : navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Other'}`);
 
       // Create audio nodes with low-latency settings
+      // CRITICAL FIX: Create processor with 2 input channels to match microphone stream
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const processor = audioContext.createScriptProcessor(4096, 1, 1); // Standard buffer size
+      const processor = audioContext.createScriptProcessor(4096, 2, 2); // Match microphone channels (usually stereo)
       const gainNode = audioContext.createGain();
 
       // Configure analyser for level meter
@@ -834,7 +835,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       source.connect(analyser);
       source.connect(processor);
       
-      // Connect processor to silent gain node to destination (required for processing)
+      // CRITICAL FIX: Connect processor to destination (required for onaudioprocess to fire)
+      // The gain node is silent (0 volume) so no audio is actually output
       processor.connect(gainNode);
       gainNode.connect(audioContext.destination);
       
@@ -843,14 +845,32 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         source.connect(audioContext.destination);
       }
 
+      console.log('✅ Audio graph connected. AudioContext state:', audioContext.state);
+      console.log('🎤 Microphone stream active:', stream.active);
+      console.log('🎤 Audio tracks:', stream.getAudioTracks().map(t => ({ enabled: t.enabled, state: t.readyState })));
+      console.log('🎤 Processor channels: input=2, output=2');
+
       // Process audio data
+      let audioProcessorCallCount = 0;
+      let lastLogTime = Date.now();
+      
       processor.onaudioprocess = (event) => {
+        audioProcessorCallCount++;
         const inputBuffer = event.inputBuffer;
+        
+        // Log every 50 calls (approximately every 1 second at 44.1kHz with 4096 buffer)
+        const now = Date.now();
+        if (now - lastLogTime > 1000) {
+          console.log(`🎤 Audio processor firing: ${audioProcessorCallCount} calls/sec, WebSocket state: ${wsRef.current?.readyState}, AudioContext state: ${audioContextRef.current?.state}`);
+          audioProcessorCallCount = 0;
+          lastLogTime = now;
+        }
         
         // Send audio data to gateway (continuous streaming - no throttling)
         // The dynamic audio switching will ensure we get the right source (microphone or mixed)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
+            // Get audio data from first channel (or mix stereo to mono)
             const audioData = inputBuffer.getChannelData(0);
             
             // Skip only if completely empty buffer (but allow silence/quiet audio)
@@ -883,6 +903,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
               console.warn('Audio processing error (throttled):', error instanceof Error ? error.message : 'Unknown error');
             }
             // Don't stop streaming on audio processing errors
+          }
+        } else {
+          // Log WebSocket state issues less frequently
+          if (audioProcessorCallCount % 100 === 0) {
+            console.warn(`⚠️ WebSocket not ready for audio data. State: ${wsRef.current?.readyState}, Exists: ${!!wsRef.current}`);
           }
         }
 
@@ -1091,7 +1116,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           
           const source = audioContext.createMediaStreamSource(basicStream);
           const analyser = audioContext.createAnalyser();
-          const processor = audioContext.createScriptProcessor(4096, 1, 1);
+          const processor = audioContext.createScriptProcessor(4096, 2, 2); // Match microphone channels
           const gainNode = audioContext.createGain();
           
           analyser.fftSize = 256;
@@ -1242,6 +1267,9 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       
       const { stream, actualConfig } = await Promise.race([audioPromise, audioTimeout]) as { stream: MediaStream; actualConfig: StreamConfig };
       console.log('✅ Audio processing setup complete');
+      console.log('🎤 Audio context state:', audioContextRef.current?.state);
+      console.log('🎤 Processor connected:', processorRef.current ? 'yes' : 'no');
+      console.log('🎤 Media stream active:', mediaStreamRef.current?.active);
 
       // Step 3: Connect to gateway with timeout
       console.log('🔌 Connecting to WebSocket gateway...');
@@ -1255,11 +1283,15 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const ws = await Promise.race([wsPromise, wsTimeout]) as WebSocket;
       wsRef.current = ws;
       console.log('✅ WebSocket connected');
+      console.log('🔌 WebSocket readyState:', ws.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+      console.log('🔌 WebSocket URL:', ws.url);
       
       // Step 4: Wait for WebSocket to be fully ready with shorter timeout
       setMessage('Finalizing connection...');
       await new Promise(resolve => setTimeout(resolve, 500)); // Increased from 100ms
       console.log('✅ WebSocket ready to send messages');
+      console.log('🔌 WebSocket state before sending start_stream:', ws.readyState, '(OPEN=1, CONNECTING=0, CLOSING=2, CLOSED=3)');
+      console.log('🔌 WebSocket URL:', ws.url);
 
       // Step 5: Send appropriate message based on connection type
       if (isReconnection) {

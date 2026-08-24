@@ -36,6 +36,11 @@ export interface IAudioRecording extends Document {
   storageUrl: string; // Full S3 URL
   cdnUrl?: string; // CloudFront URL for faster delivery
   
+  // Cloudinary backup storage (for cost optimization and disaster recovery)
+  cloudinaryUrl?: string; // Cloudinary URL for redundancy
+  cloudinaryPublicId?: string; // Cloudinary public ID for management
+  preferredStorage: "digitalocean" | "cloudinary"; // Which service to serve from
+  
   // Conversion support for AMR files
   originalUrl?: string; // S3 URL to original file (AMR, etc.)
   playbackUrl?: string; // S3 URL to converted MP3 file
@@ -182,7 +187,7 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
       max: 192000,
     },
     
-    // Storage (AWS S3)
+    // Storage (AWS S3 / DigitalOcean Spaces)
     storageKey: {
       type: String,
       required: true,
@@ -194,6 +199,23 @@ const AudioRecordingSchema = new Schema<IAudioRecording>(
     },
     cdnUrl: {
       type: String,
+    },
+    
+    // Cloudinary backup storage (for cost optimization and disaster recovery)
+    cloudinaryUrl: {
+      type: String,
+      required: false,
+    },
+    cloudinaryPublicId: {
+      type: String,
+      required: false,
+    },
+    
+    // Preferred storage for serving files (digitalocean or cloudinary)
+    preferredStorage: {
+      type: String,
+      enum: ["digitalocean", "cloudinary"],
+      default: "digitalocean",
     },
     
     // Conversion support for AMR files
