@@ -152,13 +152,6 @@ export async function POST(request: NextRequest) {
     // AMR, 3GP, WMA not supported by browsers - convert to MP3 for web playback
     const needsConversion = AudioConversionService.needsConversion(detectedFormat);
     
-    // Upload to both DigitalOcean Spaces (primary) and Cloudinary (secondary) in parallel
-    console.log(`🎵 Starting parallel upload to both DigitalOcean Spaces and Cloudinary for: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
-    
-    let s3Result;
-    let cloudinaryResult;
-    let uploadError;
-    
     // Upload to DigitalOcean Spaces (primary storage)
     // Cloudinary disabled for now - free tier has 10MB limit, audio files are larger
     console.log(`🎵 Uploading to DigitalOcean Spaces (Cloudinary disabled - free tier 10MB limit)`);
@@ -194,6 +187,17 @@ export async function POST(request: NextRequest) {
     console.log("🎵 Extracting audio metadata for:", file.name);
     const audioMetadata = await extractAudioMetadata(file);
     console.log("🎵 Extracted metadata:", audioMetadata);
+
+    // Find or create lecturer
+    let lecturer = await Lecturer.findOne({ name: lecturerName.trim() });
+    
+    if (!lecturer) {
+      // Create new lecturer if doesn't exist
+      lecturer = await Lecturer.create({
+        name: lecturerName.trim(),
+        createdBy: admin._id
+      });
+    }
 
     // Find or create default category based on type
     const defaultCategoryNames = {
@@ -353,7 +357,7 @@ export async function POST(request: NextRequest) {
             },
             body: JSON.stringify({
               recordId: audioRecording._id.toString(),
-              originalKey: uploadResult.storageKey,
+              originalKey: s3Result.storageKey,
               format: detectedFormat
             })
           });
@@ -397,7 +401,7 @@ export async function POST(request: NextRequest) {
       playbackFormat: audioRecording.playbackFormat,
       needsConversion,
       duration: audioMetadata.duration,
-      fileSize: uploadResult.fileSize,
+      fileSize: s3Result.fileSize,
       visibility: audioRecording.visibility,
       sharedWith: audioRecording.sharedWith,
       broadcastReady: audioRecording.broadcastReady

@@ -50,8 +50,7 @@ export async function POST(request: NextRequest) {
     // Update all matching records
     const result = await AudioRecording.updateMany(
       query,
-      { preferredStorage },
-      { multi: true }
+      { preferredStorage }
     );
 
     console.log(`🔄 Storage preference switched:`, {

@@ -91,5 +91,5 @@ export default async function RadioPage() {
     console.log('🔍 Using fallback schedule data:', scheduleData);
   }
 
-  return <RadioPlayer initialData={liveData} scheduleData={scheduleData} />;
+  return <RadioPlayer initialData={liveData} />;
 }
