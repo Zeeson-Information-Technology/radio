@@ -83,7 +83,7 @@ ICECAST_PORT=8000
 
 # Storage
 AWS_ENDPOINT=https://lon1.digitaloceanspaces.com
-AWS_ACCESS_KEY_ID=DO801PDKTMXXJJ8LGXGW
+AWS_ACCESS_KEY_ID=[your-digitalocean-spaces-key]
 AWS_SECRET_ACCESS_KEY=[your-secret]
 
 # CORS
