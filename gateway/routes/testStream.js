@@ -3,27 +3,37 @@
  */
 
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const { PassThrough } = require('stream');
-
 const router = express.Router();
 
-// Store active stream connections and live audio buffer
+// Active listener connections waiting for or receiving audio
 const activeStreams = new Set();
-let liveAudioBuffer = null;
-let audioStreamActive = false;
+
+// In-memory state
+let liveAudioBuffer = null;   // last 64KB of audio for catch-up
+let audioStreamActive = false; // true once FFmpeg stdout has produced data
+let broadcastIsLive = false;   // true once startStreaming() is called, false after stop
 
 /**
- * Set live audio data from FFmpeg (called by BroadcastService)
+ * Called by BroadcastService when broadcast starts (before FFmpeg produces audio)
+ */
+function setBroadcastLive(isLive) {
+  broadcastIsLive = isLive;
+  if (!isLive) {
+    stopLiveAudioStream();
+  }
+  console.log(`📻 Broadcast live state: ${isLive}`);
+}
+
+/**
+ * Called by BroadcastService when FFmpeg produces audio data
  */
 function setLiveAudioData(audioData) {
   if (!audioStreamActive) {
-    console.log('📻 Live audio stream started');
+    console.log('📻 First audio data received from FFmpeg - stream is live');
     audioStreamActive = true;
   }
-  
-  // Broadcast to all connected clients immediately
+
+  // Push chunk to all connected listeners immediately
   activeStreams.forEach(res => {
     try {
       if (!res.destroyed && res.writable) {
@@ -36,148 +46,118 @@ function setLiveAudioData(audioData) {
       activeStreams.delete(res);
     }
   });
-  
-  // Keep a small buffer for new connections (last 64KB)
-  liveAudioBuffer = audioData.length > 65536 ? audioData.slice(-65536) : audioData;
+
+  // Keep last 64KB as catch-up buffer for new connections
+  liveAudioBuffer = audioData.length > 65536
+    ? audioData.slice(-65536)
+    : audioData;
 }
 
 /**
- * Mark audio stream as inactive
+ * Called by BroadcastService when broadcast ends
  */
 function stopLiveAudioStream() {
   audioStreamActive = false;
+  broadcastIsLive = false;
   liveAudioBuffer = null;
-  
-  // Close all active connections
+
+  // Close all active listener connections
   activeStreams.forEach(res => {
     try {
-      if (!res.destroyed) {
-        res.end();
-      }
-    } catch (error) {
-      // Ignore errors when closing
-    }
+      if (!res.destroyed) res.end();
+    } catch (_) { /* ignore */ }
   });
   activeStreams.clear();
+  console.log('📻 All listener connections closed');
 }
 
 /**
  * GET /test-stream
- * Serves live audio stream for local testing
+ *
+ * - If no broadcast is live at all → 503 immediately
+ * - If broadcast is live but FFmpeg hasn't produced data yet → hold the
+ *   connection open (with audio/mpeg headers) and wait up to 15s for data
+ * - If audio is already flowing → send catch-up buffer and keep streaming
  */
 router.get('/test-stream', (req, res) => {
-  try {
-    // Set headers for live audio streaming
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Range');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    
-    console.log('📻 Client connected to live test stream');
-    
-    // Add this connection to active streams
-    activeStreams.add(res);
-    
-    // Handle client disconnect
-    req.on('close', () => {
-      console.log('📻 Client disconnected from test stream');
-      activeStreams.delete(res);
+  // Hard reject if broadcast hasn't even started
+  if (!broadcastIsLive) {
+    console.log('⚠️ /test-stream hit but broadcast not live');
+    return res.status(503).json({
+      error: 'No live broadcast',
+      message: 'Start a broadcast from the admin panel first, then try again.'
     });
-    
-    req.on('error', () => {
-      activeStreams.delete(res);
-    });
-    
-    // If no live audio is active, wait for it to become active
-    if (!audioStreamActive) {
-      console.log('⏳ No live stream active yet - waiting for audio data...');
-      
-      let waitTime = 0;
-      const maxWaitTime = 10000; // Wait up to 10 seconds
-      const checkInterval = 100; // Check every 100ms
-      
-      const waitForAudio = setInterval(() => {
-        waitTime += checkInterval;
-        
-        if (audioStreamActive) {
-          // Audio stream is now active!
-          clearInterval(waitForAudio);
-          console.log('✅ Audio stream became active - sending buffered data');
-          
-          // Send any buffered audio data to client
-          if (liveAudioBuffer) {
-            try {
-              res.write(liveAudioBuffer);
-            } catch (error) {
-              console.warn('Error sending buffer to client:', error.message);
-              activeStreams.delete(res);
-              return;
-            }
-          }
-          
-          console.log(`📻 Client ready for live stream (${activeStreams.size} total connections)`);
-        } else if (waitTime >= maxWaitTime) {
-          // Timeout - no audio stream started
-          clearInterval(waitForAudio);
-          console.log('❌ Audio stream timeout - no broadcast available');
-          activeStreams.delete(res);
-          
-          if (!res.headersSent) {
-            res.status(503).json({ 
-              error: 'No live broadcast available',
-              message: 'Please wait for the presenter to start broadcasting'
-            });
-          } else {
-            res.end();
-          }
-        }
-      }, checkInterval);
-      
-      return;
-    }
-    
-    console.log('📻 Live stream active, client connected for real-time audio');
-    
-    // Send any buffered audio data to new client
+  }
+
+  // Broadcast IS live — commit to streaming headers now.
+  // We do this before audio data arrives so the browser audio element
+  // keeps the connection open and starts playing as soon as data flows.
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Transfer-Encoding', 'chunked');
+
+  activeStreams.add(res);
+  console.log(`📻 Listener connected (${activeStreams.size} total), audioStreamActive=${audioStreamActive}`);
+
+  // Clean up when client disconnects
+  req.on('close', () => {
+    activeStreams.delete(res);
+    console.log(`📻 Listener disconnected (${activeStreams.size} remaining)`);
+  });
+  req.on('error', () => activeStreams.delete(res));
+
+  if (audioStreamActive) {
+    // Audio already flowing — send catch-up buffer immediately
     if (liveAudioBuffer) {
       try {
         res.write(liveAudioBuffer);
-      } catch (error) {
-        console.warn('Error sending buffer to new client:', error.message);
+      } catch (err) {
+        console.warn('Error sending catch-up buffer:', err.message);
         activeStreams.delete(res);
-        return;
       }
     }
-    
-    // Client is now connected and will receive live audio via setLiveAudioData
-    console.log(`📻 Client ready for live stream (${activeStreams.size} total connections)`);
-    
-  } catch (error) {
-    console.error('❌ Error serving test stream:', error);
-    activeStreams.delete(res);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to serve test stream' });
-    }
+    return;
   }
+
+  // Audio not yet flowing — wait for FFmpeg to start producing data.
+  // The connection is already open with audio/mpeg headers, so the browser
+  // audio element will start playing automatically when data arrives via
+  // the activeStreams set above.
+  console.log('⏳ Waiting for FFmpeg to start producing audio data...');
+
+  // Safety timeout: if no audio within 15s, close with a small silence sentinel
+  // so the browser doesn't hang forever if FFmpeg never starts
+  const timeout = setTimeout(() => {
+    if (!audioStreamActive && !res.destroyed) {
+      console.warn('⚠️ /test-stream: 15s timeout waiting for FFmpeg audio');
+      activeStreams.delete(res);
+      // End the response so the browser knows the stream is done
+      try { res.end(); } catch (_) {}
+    }
+  }, 15000);
+
+  req.on('close', () => clearTimeout(timeout));
 });
 
 /**
- * Get active stream connections count
+ * GET /test-stream/status — debugging
  */
 router.get('/test-stream/status', (req, res) => {
   res.json({
-    activeConnections: activeStreams.size,
-    liveStreamActive: audioStreamActive,
-    message: `${activeStreams.size} active connection(s), live stream ${audioStreamActive ? 'active' : 'inactive'}`
+    broadcastLive: broadcastIsLive,
+    audioStreamActive,
+    activeListeners: activeStreams.size,
+    streamUrl: 'http://localhost:8080/test-stream',
+    message: `Broadcast: ${broadcastIsLive ? 'LIVE' : 'OFF'}, Audio: ${audioStreamActive ? 'FLOWING' : 'WAITING'}, Listeners: ${activeStreams.size}`
   });
 });
 
-// Export functions for BroadcastService to use
 router.setLiveAudioData = setLiveAudioData;
 router.stopLiveAudioStream = stopLiveAudioStream;
+router.setBroadcastLive = setBroadcastLive;
 
 module.exports = router;

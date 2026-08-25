@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import LiveState from "@/lib/models/LiveState";
+import { checkRateLimit, applyRateLimitHeaders, RATE_LIMITS, getClientIp } from "@/lib/middleware/rateLimit";
+import { applyCorsHeaders, handleCorsPreFlight } from "@/lib/middleware/cors";
 
 /**
  * Public Live State API
@@ -8,9 +10,27 @@ import LiveState from "@/lib/models/LiveState";
  * 
  * Returns current live stream status and metadata
  * No authentication required - public endpoint
+ * Rate limited: 60 requests per minute per IP
+ * CORS: Allow all origins (public data)
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    const clientIp = getClientIp(request);
+    const rateLimitResult = checkRateLimit(clientIp, RATE_LIMITS.PUBLIC.limit, RATE_LIMITS.PUBLIC.windowMs);
+
+    if (!rateLimitResult.allowed) {
+      const response = NextResponse.json(
+        {
+          error: 'Too many requests',
+          message: `Rate limit exceeded. Try again in ${rateLimitResult.retryAfter} seconds.`,
+        },
+        { status: 429 }
+      );
+      response.headers.set('Retry-After', rateLimitResult.retryAfter?.toString() || '60');
+      return applyCorsHeaders(response, request);
+    }
+
     // Reduced logging for performance
     await connectDB();
     let liveState = await LiveState.findOne().lean();
@@ -34,7 +54,7 @@ export async function GET() {
     }
 
     // Get stream URL from environment
-    const streamUrl = process.env.STREAM_URL || "http://98.93.42.61:8000/stream";
+    const streamUrl = process.env.STREAM_URL || (process.env.NODE_ENV === 'production' ? 'http://178.128.46.95:8000/stream' : 'http://localhost:8080/test-stream');
 
     // Return public live state with enhanced broadcast control information
     const response = {
@@ -57,9 +77,10 @@ export async function GET() {
     // Create response with cache headers for faster subsequent requests
     const jsonResponse = NextResponse.json(response);
     jsonResponse.headers.set('Cache-Control', 'no-cache, must-revalidate');
-    jsonResponse.headers.set('Access-Control-Allow-Origin', '*');
     
-    return jsonResponse;
+    // Apply rate limit headers and CORS headers
+    applyRateLimitHeaders(jsonResponse, rateLimitResult, RATE_LIMITS.PUBLIC.limit);
+    return applyCorsHeaders(jsonResponse, request);
   } catch (error) {
     console.error("Live state API error:", error);
     console.error("Error details:", error instanceof Error ? error.message : 'Unknown error');
@@ -74,12 +95,23 @@ export async function GET() {
         title: null,
         lecturer: null,
         startedAt: null,
-        streamUrl: process.env.STREAM_URL || "http://98.93.42.61:8000/stream",
+        streamUrl: process.env.STREAM_URL || (process.env.NODE_ENV === 'production' ? 'http://178.128.46.95:8000/stream' : 'http://localhost:8080/test-stream'),
         currentAudioFile: null,
       }
     );
     
     fallbackResponse.headers.set('Cache-Control', 'no-cache, must-revalidate');
-    return fallbackResponse;
+    return applyCorsHeaders(fallbackResponse, request);
   }
+}
+
+/**
+ * Handle CORS preflight OPTIONS requests
+ */
+export async function OPTIONS(request: NextRequest) {
+  const preFlightResponse = handleCorsPreFlight(request);
+  if (preFlightResponse) {
+    return preFlightResponse;
+  }
+  return new NextResponse(null, { status: 204 });
 }

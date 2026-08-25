@@ -156,16 +156,11 @@ export async function POST(request: NextRequest) {
     console.log(`🎵 Starting parallel upload to both DigitalOcean Spaces and Cloudinary for: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
     
     let s3Result;
-    let cloudinaryResult;
+    let cloudinaryResult = null; // Disabled - free tier has 10MB limit, audio files are larger
     let uploadError;
     
     // Upload to DigitalOcean Spaces (primary storage)
-    // Cloudinary disabled for now - free tier has 10MB limit, audio files are larger
     console.log(`🎵 Uploading to DigitalOcean Spaces (Cloudinary disabled - free tier 10MB limit)`);
-    
-    let s3Result;
-    let cloudinaryResult = null; // Disabled
-    let uploadError;
     
     try {
       const originalKey = s3Service.generateOriginalKey(file.name);
@@ -255,8 +250,8 @@ export async function POST(request: NextRequest) {
     const audioRecording = new AudioRecording({
       title: title.trim(),
       description: description?.trim() || undefined,
-      lecturer: lecturer._id,
-      lecturerName: lecturer.name,
+      lecturer: admin._id,
+      lecturerName: lecturerName || admin.name,
       category: category._id,
       type: type as any,
       tags: processedTags,
@@ -353,7 +348,7 @@ export async function POST(request: NextRequest) {
             },
             body: JSON.stringify({
               recordId: audioRecording._id.toString(),
-              originalKey: uploadResult.storageKey,
+              originalKey: s3Result.storageKey,
               format: detectedFormat
             })
           });
@@ -372,7 +367,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Update lecturer statistics
-    await (lecturer as any).updateStatistics();
+    const lecturer = await AdminUser.findById(admin._id);
+    if (lecturer) {
+      await (lecturer as any).updateStatistics();
+    }
 
     // Update category recording count
     await (category as any).updateRecordingCount();
@@ -397,7 +395,7 @@ export async function POST(request: NextRequest) {
       playbackFormat: audioRecording.playbackFormat,
       needsConversion,
       duration: audioMetadata.duration,
-      fileSize: uploadResult.fileSize,
+      fileSize: s3Result.fileSize,
       visibility: audioRecording.visibility,
       sharedWith: audioRecording.sharedWith,
       broadcastReady: audioRecording.broadcastReady

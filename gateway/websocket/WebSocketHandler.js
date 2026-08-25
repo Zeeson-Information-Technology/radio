@@ -1,9 +1,12 @@
 /**
  * WebSocket Handler for broadcast connections
+ * 
+ * SECURITY: Authentication now happens via 'authenticate' message
+ * instead of URL query string to prevent token logging
  */
 
 const WebSocket = require('ws');
-const { verifyWebSocketClient } = require('../middleware/auth');
+const { verifyWebSocketClient, verifyJWT } = require('../middleware/auth');
 
 class WebSocketHandler {
   constructor(server, broadcastService, databaseService, port) {
@@ -25,9 +28,85 @@ class WebSocketHandler {
   }
 
   async handleConnection(ws, req) {
-    const user = req.user;
+    // WebSocket connected, but not yet authenticated
+    // Client must send 'authenticate' message within 5 seconds
     
-    console.log(`🔌 New connection from ${user.email} (${user.role})`);
+    let user = null;
+    let authenticated = false;
+    let authTimeout = null;
+
+    // Wait for authenticate message
+    const firstMessageHandler = async (message) => {
+      try {
+        const data = JSON.parse(message);
+        
+        if (data.type === 'authenticate') {
+          // Verify JWT token from message
+          try {
+            user = verifyJWT(data.token);
+            authenticated = true;
+            
+            console.log(`✅ User authenticated: ${user.email} (${user.role})`);
+            clearTimeout(authTimeout);
+            
+            // Remove this handler and attach normal message handler
+            ws.removeListener('message', firstMessageHandler);
+            ws.on('message', (msg) => this.handleMessage(ws, user, msg));
+            
+            // Process connection normally
+            await this.processAuthenticatedConnection(ws, user);
+          } catch (error) {
+            console.error('❌ Authentication failed:', error.message);
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Authentication failed: Invalid token'
+            }));
+            ws.close(4001, 'Authentication failed');
+          }
+        } else {
+          console.warn('⚠️  Received non-authenticate message before auth');
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Must send authenticate message first'
+          }));
+        }
+      } catch (error) {
+        console.error('Error parsing first message:', error);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Invalid message format'
+        }));
+      }
+    };
+
+    // Listen for first message with timeout
+    ws.on('message', firstMessageHandler);
+    
+    // Set authentication timeout - if no authenticate message in 5 seconds, close
+    authTimeout = setTimeout(() => {
+      if (!authenticated) {
+        console.log('❌ Connection closed: No authentication within 5 seconds');
+        ws.close(4000, 'Authentication timeout');
+      }
+    }, 5000);
+
+    // Handle connection errors
+    ws.on('error', (error) => {
+      console.error('WebSocket error before auth:', error);
+      clearTimeout(authTimeout);
+    });
+
+    // Handle early close
+    ws.on('close', () => {
+      clearTimeout(authTimeout);
+      if (!authenticated) {
+        console.log('Connection closed before authentication');
+      }
+    });
+  }
+
+  async processAuthenticatedConnection(ws, user) {
+    console.log(`🔌 Processing authenticated connection from ${user.email} (${user.role})`);
 
     // Check database for existing live session
     const liveState = await this.databaseService.getLiveState();
@@ -51,7 +130,6 @@ class WebSocketHandler {
         currentBroadcast.disconnectedAt = null;
         
         // Setup message handlers for new connection
-        ws.on('message', (message) => this.handleMessage(ws, user, message));
         ws.on('close', () => this.handleDisconnection(user));
         ws.on('error', (error) => this.handleError(user, error));
 
@@ -97,7 +175,6 @@ class WebSocketHandler {
         });
         
         // Setup message handlers
-        ws.on('message', (message) => this.handleMessage(ws, user, message));
         ws.on('close', () => this.handleDisconnection(user));
         ws.on('error', (error) => this.handleError(user, error));
 
@@ -127,7 +204,6 @@ class WebSocketHandler {
     });
 
     // Setup message handlers
-    ws.on('message', (message) => this.handleMessage(ws, user, message));
     ws.on('close', () => this.handleDisconnection(user));
     ws.on('error', (error) => this.handleError(user, error));
 
@@ -279,13 +355,13 @@ class WebSocketHandler {
   handleAudioData(ws, user, audioBuffer) {
     const streamingStatus = this.broadcastService.getStreamingStatus();
     
-    // CRITICAL FIX: In local testing mode, we should write audio data even if isStreaming is false
-    // isStreaming will be set to true once FFmpeg receives the first audio chunk
-    // We need to write data to FFmpeg to make it start streaming
-    if (!streamingStatus.hasFFmpeg || !streamingStatus.hasBroadcast) {
-      // Only skip if FFmpeg process doesn't exist or no broadcast session
+    // CRITICAL FIX: Write audio data even if FFmpeg is "not ready"
+    // FFmpeg may be spawning/connecting - we MUST send audio to activate the stream
+    // The handleAudioData method in BroadcastService will set isStreaming when it succeeds
+    if (!streamingStatus.hasBroadcast) {
+      // Only skip if NO broadcast session exists
       if (!this.lastAudioDataWarning || Date.now() - this.lastAudioDataWarning > 1000) {
-        console.warn(`⚠️ Audio data received but FFmpeg not ready. Status:`, streamingStatus);
+        console.warn(`⚠️ Audio data received but no broadcast session`);
         this.lastAudioDataWarning = Date.now();
       }
       return;

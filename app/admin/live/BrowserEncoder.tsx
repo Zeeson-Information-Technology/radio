@@ -482,7 +482,10 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     };
 
     checkSupport();
-    checkExistingSession();
+    // DISABLED: Auto-reconnect was causing broadcasts to restart on page load
+    // Users now must manually click "Start Broadcasting" to begin broadcasting
+    // This gives explicit control over when streams start/stop
+    // checkExistingSession();
   }, []);
 
   // Cleanup on unmount
@@ -588,68 +591,98 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   };
 
   const connectWebSocket = async (token: string): Promise<WebSocket> => {
-    return new Promise((resolve, reject) => {
-      const gatewayUrl = process.env.NEXT_PUBLIC_BROADCAST_GATEWAY_URL || 'ws://localhost:8080';
-      const ws = new WebSocket(`${gatewayUrl}?token=${token}`);
-
-      // Optimize WebSocket for low latency
-      ws.binaryType = 'arraybuffer'; // Faster than blob for binary data
-
-      const timeout = setTimeout(() => {
-        ws.close();
-        reject(new Error('Connection timeout'));
-      }, 5000); // Reduced from 10000 for faster failure detection
-
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        console.log('✅ Connected to broadcast gateway');
-        
-        // Send low-latency configuration
-        ws.send(JSON.stringify({
-          type: 'configure_latency',
-          mode: 'ultra_low'
-        }));
-        
-        resolve(ws);
-      };
-
-      ws.onerror = (error) => {
-        clearTimeout(timeout);
-        console.error('❌ WebSocket error:', error);
-        
-        // Emit network error
-        emitBroadcastError({
-          type: 'network',
-          message: 'Failed to connect to broadcast server',
-          recoverable: true
-        });
-        
-        reject(new Error('Failed to connect to broadcast server'));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          handleGatewayMessage(data);
-        } catch (error) {
-          console.error('Error parsing gateway message:', error);
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Fetch gateway URL from server-side config (not exposed in client bundle)
+        const configResponse = await fetch('/api/gateway-config');
+        if (!configResponse.ok) {
+          throw new Error('Failed to fetch gateway configuration');
         }
-      };
+        
+        const config = await configResponse.json();
+        const gatewayUrl = config.gatewayUrl || 'ws://localhost:8080';
+        
+        console.log('🌐 Gateway URL from config:', gatewayUrl);
+        
+        // SECURITY: Pass token via Authorization header instead of URL query string
+        // This prevents token from being:
+        // - Logged in server access logs
+        // - Stored in browser history
+        // - Exposed in referrer headers
+        // 
+        // Note: WebSocket API doesn't support custom headers directly,
+        // so we send auth in first message instead (alternative approach)
+        const ws = new WebSocket(gatewayUrl);
 
-      ws.onclose = (event) => {
-        console.log('🔌 WebSocket closed:', event.code, event.reason);
-        if (connectionState === 'streaming') {
-          setConnectionState('error');
-          setErrorMessage('Connection lost during stream');
+        // Optimize WebSocket for low latency
+        ws.binaryType = 'arraybuffer'; // Faster than blob for binary data
+
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Connection timeout'));
+        }, 5000); // Reduced from 10000 for faster failure detection
+
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('✅ Connected to broadcast gateway');
           
-          // Emit gateway error
+          // Send authentication token in first message (secure alternative to URL query)
+          // This keeps token out of logs and browser history
+          ws.send(JSON.stringify({
+            type: 'authenticate',
+            token: token,
+          }));
+          
+          // Send low-latency configuration
+          ws.send(JSON.stringify({
+            type: 'configure_latency',
+            mode: 'ultra_low'
+          }));
+          
+          resolve(ws);
+        };
+
+        ws.onerror = (error) => {
+          clearTimeout(timeout);
+          console.error('❌ WebSocket error:', error);
+          
+          // Emit network error
           emitBroadcastError({
-            type: 'gateway',
-            message: 'Connection lost during stream',
+            type: 'network',
+            message: 'Failed to connect to broadcast server',
             recoverable: true
           });
-        }
-      };
+          
+          reject(new Error('Failed to connect to broadcast server'));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleGatewayMessage(data);
+          } catch (error) {
+            console.error('Error parsing gateway message:', error);
+          }
+        };
+
+        ws.onclose = (event) => {
+          console.log('🔌 WebSocket closed:', event.code, event.reason);
+          if (connectionState === 'streaming') {
+            setConnectionState('error');
+            setErrorMessage('Connection lost during stream');
+            
+            // Emit gateway error
+            emitBroadcastError({
+              type: 'gateway',
+              message: 'Connection lost during stream',
+              recoverable: true
+            });
+          }
+        };
+      } catch (error) {
+        console.error('❌ Error fetching gateway config:', error);
+        reject(error instanceof Error ? error : new Error('Failed to connect to gateway'));
+      }
     });
   };
 

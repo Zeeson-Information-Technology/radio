@@ -28,7 +28,7 @@ export function checkEnvironmentConfig(): EnvironmentConfig {
   const streamUrl = process.env.STREAM_URL || 
     (isProduction ? 'http://98.93.42.61:8000/stream' : 'http://localhost:8080/test-stream');
   
-  const websocketUrl = process.env.NEXT_PUBLIC_BROADCAST_GATEWAY_URL || 
+  const websocketUrl = process.env.BROADCAST_GATEWAY_URL || 
     (isProduction ? 'ws://98.93.42.61:8080' : 'ws://localhost:8080');
   
   const mongodbUri = process.env.MONGODB_URI || '';

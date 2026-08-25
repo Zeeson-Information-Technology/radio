@@ -1,12 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  experimental: {
-    // External packages for server components
-    serverComponentsExternalPackages: ['fluent-ffmpeg', 'cloudinary'],
-  },
-  // For App Router, we need to handle large uploads differently
-  // The body size limit is handled at the runtime level
+  // External packages that should not be bundled by Next.js (server-side only)
+  serverExternalPackages: ['fluent-ffmpeg', 'cloudinary'],
 };
 
 export default nextConfig;
