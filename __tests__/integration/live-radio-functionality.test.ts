@@ -135,7 +135,7 @@ describe('Live Radio Core Functionality', () => {
   describe('Real-Time Update Messages', () => {
     it('should format broadcast start message correctly', () => {
       const startMessage = {
-        type: 'broadcast_started',
+        type: 'broadcast_start',
         isLive: true,
         isPaused: false,
         title: 'New Lecture',
@@ -146,7 +146,7 @@ describe('Live Radio Core Functionality', () => {
 
       const sseMessage = `data: ${JSON.stringify(startMessage)}\n\n`;
       
-      expect(sseMessage).toContain('broadcast_started');
+      expect(sseMessage).toContain('broadcast_start');
       expect(sseMessage).toContain('New Lecture');
       expect(sseMessage).toContain('Sheikh Ahmad');
       expect(startMessage.isLive).toBe(true);
@@ -190,7 +190,7 @@ describe('Live Radio Core Functionality', () => {
 
     it('should format stop message correctly', () => {
       const stopMessage = {
-        type: 'broadcast_stopped',
+        type: 'broadcast_stop',
         isLive: false,
         isPaused: false,
         title: null,
@@ -200,7 +200,7 @@ describe('Live Radio Core Functionality', () => {
 
       const sseMessage = `data: ${JSON.stringify(stopMessage)}\n\n`;
       
-      expect(sseMessage).toContain('broadcast_stopped');
+      expect(sseMessage).toContain('broadcast_stop');
       expect(stopMessage.isLive).toBe(false);
       expect(stopMessage.title).toBeNull();
     });

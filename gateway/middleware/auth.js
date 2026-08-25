@@ -1,5 +1,11 @@
 /**
  * JWT Authentication Middleware
+ * 
+ * SECURITY: Token is now verified via 'authenticate' message in WebSocket
+ * instead of URL query string to prevent:
+ * - Token logging in server access logs
+ * - Token stored in browser history
+ * - Token in referrer headers
  */
 
 const jwt = require('jsonwebtoken');
@@ -33,33 +39,38 @@ function authenticateToken(req, res, next) {
   }
 }
 
+/**
+ * Verify JWT token - shared function for both HTTP and WebSocket
+ */
+function verifyJWT(token) {
+  if (!token) {
+    throw new Error('No token provided');
+  }
+
+  return jwt.verify(token, config.JWT_SECRET, {
+    issuer: 'almanhaj-radio',
+    audience: 'broadcast-gateway'
+  });
+}
+
+/**
+ * WebSocket connection handler - allows unauthenticated initial connection
+ * Authentication happens via 'authenticate' message
+ */
 function verifyWebSocketClient(info, port) {
   try {
-    const url = new URL(info.req.url, `ws://localhost:${port}`);
-    const token = url.searchParams.get('token');
-    
-    if (!token) {
-      console.log('❌ Connection rejected: No token provided');
-      return false;
-    }
-
-    const decoded = jwt.verify(token, config.JWT_SECRET, {
-      issuer: 'almanhaj-radio',
-      audience: 'broadcast-gateway'
-    });
-    
-    // Store user info for later use
-    info.req.user = decoded;
-    
-    console.log(`✅ Token verified for user: ${decoded.email} (${decoded.role})`);
+    // Accept connection without token verification
+    // Token will be verified when 'authenticate' message is received
+    console.log('✅ WebSocket connection accepted, awaiting authenticate message');
     return true;
   } catch (error) {
-    console.log('❌ Connection rejected: Invalid token', error.message);
+    console.log('❌ Connection rejected:', error.message);
     return false;
   }
 }
 
 module.exports = {
   authenticateToken,
+  verifyJWT,
   verifyWebSocketClient
 };

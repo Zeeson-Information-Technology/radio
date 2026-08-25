@@ -1,6 +1,10 @@
 import RadioPlayer from "./RadioPlayer";
 import type { Metadata } from "next";
-import { logEnvironmentConfig } from "@/lib/utils/environment-checker";
+import { connectDB } from "@/lib/db";
+import LiveState from "@/lib/models/LiveState";
+
+// Force dynamic rendering — this page reads live DB state on every request
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: "Listen Live",
@@ -9,86 +13,52 @@ export const metadata: Metadata = {
 
 /**
  * Public Radio Page
- * Fetches live state and schedule from API and renders the radio player
+ * Reads live state directly from DB (no HTTP self-fetch needed)
  */
 export default async function RadioPage() {
-  // Log environment configuration for debugging
-  logEnvironmentConfig();
-  
-  // Use absolute URL for server-side fetch
-  const baseUrl = process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL}` 
-    : process.env.NODE_ENV === 'production' 
-      ? 'https://almanhaj.vercel.app' // Replace with your actual Vercel URL
-      : 'http://localhost:3000';
+  const streamUrl = process.env.STREAM_URL ||
+    (process.env.NODE_ENV === 'production'
+      ? 'http://178.128.46.95:8000/stream'
+      : 'http://localhost:8080/test-stream');
 
-  console.log(`🔍 Using base URL for API calls: ${baseUrl}`);
+  let liveData = {
+    ok: true,
+    isLive: false,
+    isMuted: false,
+    mutedAt: null as string | null,
+    title: null as string | null,
+    lecturer: null as string | null,
+    startedAt: null as string | null,
+    streamUrl,
+    currentAudioFile: null as null | { title: string; duration: number; startedAt: string },
+  };
 
-  // Fetch live state from our API
-  let liveData;
-  
   try {
-    console.log('🔍 Server-side fetching live data from:', `${baseUrl}/api/live`);
-    const response = await fetch(`${baseUrl}/api/live`, {
-      cache: 'no-store', // Always fetch fresh data
-      next: { revalidate: 0 }, // Revalidate immediately
-    });
-    
-    console.log('🔍 Live data response status:', response.status);
-    
-    if (response.ok) {
-      liveData = await response.json();
-      console.log('🔍 Live data fetched successfully:', liveData);
-    } else {
-      console.error('❌ Live data fetch failed with status:', response.status);
-      throw new Error('Failed to fetch live data');
+    await connectDB();
+    const state = await LiveState.findOne().lean();
+
+    if (state) {
+      liveData = {
+        ok: true,
+        isLive: state.isLive || false,
+        isMuted: state.isMuted || false,
+        mutedAt: state.mutedAt ? state.mutedAt.toISOString() : null,
+        title: state.title || null,
+        lecturer: state.lecturer || null,
+        startedAt: state.startedAt ? state.startedAt.toISOString() : null,
+        streamUrl,
+        currentAudioFile: state.currentAudioFile
+          ? {
+              title: state.currentAudioFile.title,
+              duration: state.currentAudioFile.duration,
+              startedAt: state.currentAudioFile.startedAt.toISOString(),
+            }
+          : null,
+      };
     }
   } catch (error) {
-    console.error('❌ Error fetching live data:', error);
-    // Fallback data
-    liveData = {
-      ok: true,
-      isLive: false,
-      isMuted: false,
-      mutedAt: null,
-      title: null,
-      lecturer: null,
-      startedAt: null,
-      streamUrl: process.env.STREAM_URL || "http://localhost:8080/test-stream",
-      currentAudioFile: null
-    };
-    console.log('🔍 Using fallback live data:', liveData);
-  }
-
-  // Fetch schedule data
-  let scheduleData;
-  
-  try {
-    console.log('🔍 Server-side fetching schedule data from:', `${baseUrl}/api/schedule`);
-    const response = await fetch(`${baseUrl}/api/schedule`, {
-      cache: 'no-store', // Always fetch fresh data
-      next: { revalidate: 60 }, // Revalidate schedule every minute
-    });
-    
-    console.log('🔍 Schedule data response status:', response.status);
-    
-    if (response.ok) {
-      scheduleData = await response.json();
-      console.log('🔍 Schedule data fetched successfully:', scheduleData);
-    } else {
-      console.error('❌ Schedule data fetch failed with status:', response.status);
-      const errorText = await response.text();
-      console.error('❌ Schedule error response:', errorText);
-      throw new Error('Failed to fetch schedule');
-    }
-  } catch (error) {
-    console.error('❌ Error fetching schedule:', error);
-    // Fallback data
-    scheduleData = {
-      ok: true,
-      items: [],
-    };
-    console.log('🔍 Using fallback schedule data:', scheduleData);
+    console.error('Error loading live state for radio page:', error);
+    // liveData stays as the safe fallback above
   }
 
   return <RadioPlayer initialData={liveData} />;

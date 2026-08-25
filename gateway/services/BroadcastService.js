@@ -85,6 +85,12 @@ class BroadcastService {
     });
 
     this.startFFmpeg(ws, user, audioConfig);
+
+    // Tell test stream a broadcast is live (before FFmpeg produces data)
+    // so listeners can connect and wait for audio rather than getting 503
+    if (this.testStreamRoute && this.testStreamRoute.setBroadcastLive) {
+      this.testStreamRoute.setBroadcastLive(true);
+    }
   }
 
   async reconnectStreaming(ws, user, streamConfig = {}) {
@@ -330,14 +336,21 @@ class BroadcastService {
     this.ffmpegProcess.stderr.on('data', (data) => {
       const output = data.toString();
       
-      // Only log important messages, not every frame update
-      if (output.includes('Stream #') || output.includes('Opening') || output.includes('error') || output.includes('Error')) {
-        console.log('FFmpeg:', output.trim());
-      }
+      // CRITICAL FIX: Log ALL FFmpeg stderr to debug connection issues
+      console.log('FFmpeg:', output.trim());
       
-      // Check for successful connection to Icecast (production mode)
-      if (!isLocalTesting && (output.includes('Stream #0:0') || output.includes('Opening'))) {
-        if (!this.isStreaming) {
+      // Check for successful connection to Icecast
+      // FFmpeg outputs multiple success indicators - check for any of them
+      if (!isLocalTesting) {
+        const successIndicators = [
+          output.includes('Stream #0:0'),        // Old FFmpeg versions
+          output.includes('Opening'),             // Connection opening
+          output.includes('Icecast'),             // Icecast mentions
+          output.includes('muxing overhead'),    // Mux started
+          output.includes('[icecast'),           // Icecast protocol messages
+        ];
+        
+        if (successIndicators.some(Boolean) && !this.isStreaming) {
           console.log('✅ FFmpeg connected to Icecast - streaming started');
           this.isStreaming = true;
           
@@ -351,13 +364,39 @@ class BroadcastService {
         }
       }
       
-      // Detect connection errors
-      if (output.includes('Connection refused') || output.includes('Connection reset') || output.includes('Broken pipe')) {
-        console.error('🚨 FFmpeg connection error:', output);
+      // Detect specific errors
+      if (output.includes('Connection refused')) {
+        console.error('🚨 FFmpeg ICECAST CONNECTION FAILED: Connection refused');
+        console.error('   Icecast server not responding on ' + config.ICECAST_HOST + ':' + config.ICECAST_PORT);
+        this.isStreaming = false;
         if (ws && ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({
             type: 'stream_error',
-            message: 'Connection error - check Icecast server'
+            message: 'Icecast connection refused - server may not be running'
+          }));
+        }
+      }
+      
+      if (output.includes('Invalid argument') || output.includes('Invalid operation')) {
+        console.error('🚨 FFmpeg INVALID ICECAST URL');
+        console.error('   Check ICECAST_HOST configuration in gateway/.env');
+        console.error('   Current: ' + config.ICECAST_HOST + ':' + config.ICECAST_PORT);
+        this.isStreaming = false;
+        if (ws && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'stream_error',
+            message: 'Invalid Icecast URL - check gateway/.env ICECAST_HOST'
+          }));
+        }
+      }
+      
+      if (output.includes('Connection reset') || output.includes('Broken pipe') || output.includes('EPIPE')) {
+        console.error('🚨 FFmpeg connection lost:', output.trim());
+        this.isStreaming = false;
+        if (ws && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'stream_error',
+            message: 'Connection to Icecast lost'
           }));
         }
       }
@@ -472,8 +511,15 @@ class BroadcastService {
   }
 
   handleAudioData(audioBuffer) {
-    if (!this.isStreaming || !this.ffmpegProcess) {
+    if (!this.ffmpegProcess) {
       return;
+    }
+
+    // CRITICAL FIX: Mark as streaming when we receive first audio chunk
+    // Sometimes FFmpeg connection succeeds but doesn't output the detection string
+    if (!this.isStreaming && this.ffmpegProcess && this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
+      console.log('✅ FFmpeg streaming started - first audio chunk received');
+      this.isStreaming = true;
     }
 
     try {
@@ -493,8 +539,7 @@ class BroadcastService {
           console.log(`✍️ Audio data written to FFmpeg: ${this.audioWriteCount} chunks (${rate} chunks/sec), buffer size: ${audioBuffer.length} bytes`);
         }
         
-        // CRITICAL FIX: Ensure we're writing clean audio data
-        // If audio file just changed, there might be buffered data - flush it
+        // Write audio data to FFmpeg
         this.ffmpegProcess.stdin.write(audioBuffer);
       } else {
         console.warn('⚠️ FFmpeg stdin not writable, skipping audio data');
@@ -505,6 +550,7 @@ class BroadcastService {
       // If write fails consistently, the stream may be broken
       if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
         console.error('🚨 FFmpeg pipe broken - stream may need restart');
+        this.isStreaming = false;
       }
     }
   }

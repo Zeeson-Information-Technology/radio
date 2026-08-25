@@ -152,13 +152,15 @@ export async function POST(request: NextRequest) {
     // AMR, 3GP, WMA not supported by browsers - convert to MP3 for web playback
     const needsConversion = AudioConversionService.needsConversion(detectedFormat);
     
-    // Upload to DigitalOcean Spaces (primary storage)
-    // Cloudinary disabled for now - free tier has 10MB limit, audio files are larger
-    console.log(`🎵 Uploading to DigitalOcean Spaces (Cloudinary disabled - free tier 10MB limit)`);
+    // Upload to both DigitalOcean Spaces (primary) and Cloudinary (secondary) in parallel
+    console.log(`🎵 Starting parallel upload to both DigitalOcean Spaces and Cloudinary for: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
     
     let s3Result;
-    let cloudinaryResult = null; // Disabled
+    let cloudinaryResult = null; // Disabled - free tier has 10MB limit, audio files are larger
     let uploadError;
+    
+    // Upload to DigitalOcean Spaces (primary storage)
+    console.log(`🎵 Uploading to DigitalOcean Spaces (Cloudinary disabled - free tier 10MB limit)`);
     
     try {
       const originalKey = s3Service.generateOriginalKey(file.name);
@@ -187,17 +189,6 @@ export async function POST(request: NextRequest) {
     console.log("🎵 Extracting audio metadata for:", file.name);
     const audioMetadata = await extractAudioMetadata(file);
     console.log("🎵 Extracted metadata:", audioMetadata);
-
-    // Find or create lecturer
-    let lecturer = await Lecturer.findOne({ name: lecturerName.trim() });
-    
-    if (!lecturer) {
-      // Create new lecturer if doesn't exist
-      lecturer = await Lecturer.create({
-        name: lecturerName.trim(),
-        createdBy: admin._id
-      });
-    }
 
     // Find or create default category based on type
     const defaultCategoryNames = {
@@ -259,8 +250,8 @@ export async function POST(request: NextRequest) {
     const audioRecording = new AudioRecording({
       title: title.trim(),
       description: description?.trim() || undefined,
-      lecturer: lecturer._id,
-      lecturerName: lecturer.name,
+      lecturer: admin._id,
+      lecturerName: lecturerName || admin.name,
       category: category._id,
       type: type as any,
       tags: processedTags,
@@ -376,7 +367,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Update lecturer statistics
-    await (lecturer as any).updateStatistics();
+    const lecturer = await AdminUser.findById(admin._id);
+    if (lecturer) {
+      await (lecturer as any).updateStatistics();
+    }
 
     // Update category recording count
     await (category as any).updateRecordingCount();

@@ -92,7 +92,7 @@ export async function GET() {
 
     // Test 4: Gateway Health
     try {
-      const gatewayUrl = process.env.NEXT_PUBLIC_BROADCAST_GATEWAY_URL?.replace('ws://', 'http://').replace('wss://', 'https://') + '/health';
+      const gatewayUrl = process.env.BROADCAST_GATEWAY_URL?.replace('ws://', 'http://').replace('wss://', 'https://') + '/health';
       const gatewayResponse = await fetch(gatewayUrl);
       
       if (gatewayResponse.ok) {

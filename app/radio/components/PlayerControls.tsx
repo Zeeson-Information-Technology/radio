@@ -66,13 +66,11 @@ export default function PlayerControls({
   return (
     <div className="p-6 bg-slate-50">
       <div className="flex flex-col items-center justify-center">
-        {/* Audio Element */}
+        {/* Audio Element - src is set imperatively on play to avoid CORS preflight */}
         <audio
           ref={audioRef}
-          src={liveData.streamUrl}
           preload="none"
           className="hidden"
-          crossOrigin="anonymous"
         />
 
         {/* Play/Pause Button */}

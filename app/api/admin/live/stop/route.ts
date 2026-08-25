@@ -4,15 +4,25 @@ import { connectDB } from "@/lib/db";
 import AdminUser from "@/lib/models/AdminUser";
 import LiveState from "@/lib/models/LiveState";
 import { verifyAuthToken } from "@/lib/auth";
+import { verifyCsrfToken } from "@/lib/middleware/csrf";
 
 /**
  * Stop Live Stream API
  * POST /api/admin/live/stop
  * 
  * Allows authenticated admins and presenters to stop a live stream
+ * Protected by: JWT authentication + CSRF token validation
  */
 export async function POST(request: NextRequest) {
   try {
+    // Verify CSRF token (prevent cross-site request forgery)
+    if (!verifyCsrfToken(request)) {
+      return NextResponse.json(
+        { error: "CSRF validation failed" },
+        { status: 403 }
+      );
+    }
+
     // Get authentication token from cookies
     const cookieStore = await cookies();
     const token = cookieStore.get("admin_token")?.value;
@@ -87,6 +97,14 @@ export async function POST(request: NextRequest) {
 
     // Send real-time notification to listeners
     try {
+      // Ensure we have a valid stream URL before sending to listeners
+      const streamUrl = process.env.STREAM_URL || 'http://localhost:8000/stream';
+      
+      // Log warning if STREAM_URL env var is not configured
+      if (!process.env.STREAM_URL) {
+        console.warn('⚠️ STREAM_URL not configured in environment, using fallback:', streamUrl);
+      }
+      
       const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
       await fetch(`${baseUrl}/api/live/notify`, {
         method: 'POST',
@@ -103,10 +121,11 @@ export async function POST(request: NextRequest) {
           lecturer: null,
           startedAt: null,
           currentAudioFile: null,
+          streamUrl: streamUrl,
           timestamp: new Date().toISOString()
         })
       });
-      console.log('📡 Sent broadcast stop notification to listeners');
+      console.log('📡 Sent broadcast stop notification to listeners with streamUrl:', streamUrl);
     } catch (notifyError) {
       console.error('Failed to send broadcast stop notification:', notifyError);
     }
