@@ -26,11 +26,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Extract event dataSimple audio 
+    // Extract event data
     const { action, type, message, ...eventData } = body;
     
     if (action !== 'broadcast_event' || !type) {
       return NextResponse.json({ error: 'Invalid event data' }, { status: 400 });
+    }
+
+    // Log if streamUrl is missing from broadcast event (early warning sign)
+    if ((type === 'broadcast_start' || type === 'broadcast_stop') && !eventData.streamUrl) {
+      console.warn('⚠️ WARNING: Broadcast event received without streamUrl:', {
+        type,
+        isLive: eventData.isLive,
+        title: eventData.title
+      });
     }
 
     // Map gateway event types to SSE event types

@@ -106,7 +106,7 @@ describe('Real-Time Updates via Server-Sent Events', () => {
   describe('Broadcast State Updates', () => {
     it('should notify listeners when admin starts broadcasting', () => {
       const updateData = {
-        type: 'broadcast_started',
+        type: 'broadcast_start',
         isLive: true,
         isPaused: false,
         title: 'New Lecture',
@@ -119,7 +119,7 @@ describe('Real-Time Updates via Server-Sent Events', () => {
       mockBroadcastLiveUpdate(updateData);
 
       expect(mockBroadcastLiveUpdate).toHaveBeenCalledWith(updateData);
-      expect(updateData.type).toBe('broadcast_started');
+      expect(updateData.type).toBe('broadcast_start');
       expect(updateData.isLive).toBe(true);
       expect(updateData.title).toBe('New Lecture');
     });
@@ -164,7 +164,7 @@ describe('Real-Time Updates via Server-Sent Events', () => {
 
     it('should notify listeners when admin stops broadcast', () => {
       const updateData = {
-        type: 'broadcast_stopped',
+        type: 'broadcast_stop',
         isLive: false,
         isPaused: false,
         title: null,
@@ -317,7 +317,7 @@ describe('Real-Time Updates via Server-Sent Events', () => {
       const connections = new Set([user1Controller, user2Controller, user3Controller]);
       
       const updateData = {
-        type: 'broadcast_started',
+        type: 'broadcast_start',
         isLive: true,
         isPaused: false,
         title: 'Popular Lecture',

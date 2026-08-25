@@ -12,6 +12,7 @@ export interface IAdminUser extends Document {
   mustChangePassword: boolean;
   createdBy: mongoose.Types.ObjectId | null;
   lastLoginAt: Date | null;
+  tokenVersion: number;  // Incremented on logout for token revocation
   createdAt: Date;
 }
 
@@ -50,6 +51,11 @@ const AdminUserSchema = new Schema<IAdminUser>(
     lastLoginAt: {
       type: Date,
       default: null,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      description: "Incremented on logout to invalidate all existing refresh tokens",
     },
     createdAt: {
       type: Date,

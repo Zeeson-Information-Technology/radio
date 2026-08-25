@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/middleware/rateLimit";
 
 // Store active SSE connections
 const connections = new Set<ReadableStreamDefaultController>();
@@ -6,8 +7,29 @@ const connections = new Set<ReadableStreamDefaultController>();
 /**
  * GET /api/live/events
  * Server-Sent Events endpoint for real-time broadcast updates
+ * Rate limited: 60 requests per minute per IP to prevent connection spam
  */
 export async function GET(request: NextRequest) {
+  // Apply rate limiting to connection attempts
+  const clientIp = getClientIp(request);
+  const rateLimitResult = checkRateLimit(clientIp, RATE_LIMITS.PUBLIC.limit, RATE_LIMITS.PUBLIC.windowMs);
+
+  if (!rateLimitResult.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: 'Too many requests',
+        message: `Rate limit exceeded. Try again in ${rateLimitResult.retryAfter} seconds.`,
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': rateLimitResult.retryAfter?.toString() || '60',
+        },
+      }
+    );
+  }
+
   // Create SSE stream
   const stream = new ReadableStream({
     start(controller) {
@@ -59,6 +81,9 @@ export async function GET(request: NextRequest) {
       'Connection': 'keep-alive',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Cache-Control',
+      'X-RateLimit-Limit': RATE_LIMITS.PUBLIC.limit.toString(),
+      'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+      'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetAt / 1000).toString(),
     },
   });
 }

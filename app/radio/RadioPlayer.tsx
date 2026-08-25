@@ -93,7 +93,17 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
             // Handle different types of updates
             switch (data.type) {
               case 'broadcast_start':
-                console.log('📡 Received broadcast start notification');
+                console.log('📡 Received broadcast start notification', {
+                  isLive: data.isLive,
+                  title: data.title,
+                  hasStreamUrl: !!data.streamUrl
+                });
+                
+                // Log warning if streamUrl is missing
+                if (!data.streamUrl) {
+                  console.warn('⚠️ WARNING: broadcast_start event received without streamUrl!');
+                }
+                
                 setLiveData({
                   ok: true,
                   isLive: data.isLive,
@@ -109,6 +119,8 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 
               case 'broadcast_stop':
                 console.log('📡 Received broadcast stop notification');
+                
+                // Include streamUrl from the event if available, otherwise use previous
                 setLiveData({
                   ok: true,
                   isLive: data.isLive || false,
@@ -278,36 +290,22 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
           }
         }
 
-        // Start playing
-        console.log('📡 Broadcast status:', { 
+        console.log('📡 Starting playback:', { 
           isLive: liveData.isLive, 
           isMuted: liveData.isMuted,
           streamUrl: liveData.streamUrl,
           lecturer: liveData.lecturer 
         });
 
-        // Test stream availability first
-        try {
-          const testResponse = await fetch(liveData.streamUrl, { 
-            method: 'HEAD',
-            mode: 'no-cors'
-          });
-          console.log('🔍 Stream test response:', testResponse.status);
-        } catch (error) {
-          console.warn('⚠️ Stream test failed (expected for CORS), proceeding with audio load');
-        }
+        // Set src directly — avoids load() resetting the element
+        // and avoids a redundant HEAD request that wastes a connection
+        audioRef.current.src = liveData.streamUrl;
 
-        // Load and play the stream with better error handling
-        audioRef.current.load();
-        
-        // Add event listeners for better error handling
-        const handleCanPlay = () => {
-          console.log('✅ Audio can play');
-        };
-        
+        // Error handler — fires if the stream can't be decoded or connection fails
         const handleError = (error: Event) => {
           console.error('❌ Audio error event:', error);
           setIsPlaying(false);
+          audioRef.current.removeEventListener('error', handleError);
           
           const audioError = (error.target as HTMLAudioElement)?.error;
           if (audioError) {
@@ -327,12 +325,11 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
           }
         };
         
-        audioRef.current.addEventListener('canplay', handleCanPlay, { once: true });
         audioRef.current.addEventListener('error', handleError, { once: true });
         
         await audioRef.current.play();
         setIsPlaying(true);
-        console.log('🔊 Audio started');
+        console.log('🔊 Audio playback started');
       }
     } catch (error) {
       console.error('Audio playback error:', error);
