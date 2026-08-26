@@ -5,7 +5,6 @@ import AudioRecording from "@/lib/models/AudioRecording";
 import AdminUser from "@/lib/models/AdminUser";
 import Category from "@/lib/models/Category";
 import Tag from "@/lib/models/Tag";
-import AudioConversionService from "@/lib/services/audioConversion";
 import { getFormatByExtension } from "@/lib/utils/audio-formats";
 import { getGatewayUrl, checkGatewayHealth } from "@/lib/utils/environment-checker";
 import jwt from "jsonwebtoken";
@@ -55,7 +54,8 @@ export async function POST(request: NextRequest) {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
     const formatInfo = getFormatByExtension(ext);
     const detectedFormat = formatInfo?.extension || ext;
-    const needsConversion = AudioConversionService.needsConversion(detectedFormat);
+    const CONVERSION_FORMATS = ['amr', 'amr-wb', '3gp', '3gp2', 'wma', 'mpeg'];
+    const needsConversion = CONVERSION_FORMATS.includes(detectedFormat.toLowerCase());
     const isBroadcastUpload = broadcastReady === true;
     const visibility = visibilityInput || getDefaultVisibility(admin.role, isBroadcastUpload);
     const estimatedDuration = estimateDuration(fileName, fileSize || 0);
