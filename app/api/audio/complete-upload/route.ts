@@ -166,10 +166,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update stats
-    const lecturer = await AdminUser.findById(admin._id);
-    if (lecturer) await (lecturer as any).updateStatistics();
+    // Update category recording count
     await (category as any).updateRecordingCount();
+
+    // Update tag usage counts
     for (const tagName of processedTags) {
       const tag = await Tag.findOne({ name: tagName });
       if (tag) await (tag as any).updateUsageCount();

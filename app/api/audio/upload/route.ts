@@ -366,12 +366,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update lecturer statistics
-    const lecturer = await AdminUser.findById(admin._id);
-    if (lecturer) {
-      await (lecturer as any).updateStatistics();
-    }
-
     // Update category recording count
     await (category as any).updateRecordingCount();
 
