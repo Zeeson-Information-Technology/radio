@@ -59,6 +59,12 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null!);
+  // Store audio event handlers so they can be removed on stop
+  const audioEventHandlersRef = useRef<{
+    playing: () => void;
+    waiting: () => void;
+    stalled: () => void;
+  } | null>(null);
 
   // Smart automatic updates - checks every 10 seconds when page is visible
   const checkLiveState = async (showLoading = false) => {
@@ -265,9 +271,18 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
 
     try {
       if (isPlaying) {
-        // Stop playing
+        // Stop playing — fully reset the element so the next play
+        // reconnects fresh to the live edge instead of resuming from a stale buffer
         audioRef.current.pause();
         audioRef.current.src = '';
+        audioRef.current.load(); // flushes internal buffer, prevents stale-buffer stalling on re-play
+        // Remove buffering event listeners to prevent accumulation
+        if (audioEventHandlersRef.current) {
+          audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
+          audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
+          audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
+          audioEventHandlersRef.current = null;
+        }
         setIsPlaying(false);
         setIsBuffering(false);
         console.log('🔇 Audio stopped');
@@ -312,6 +327,9 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         const handleWaiting = () => setIsBuffering(true);
         const handleStalled = () => setIsBuffering(true);
 
+        // Store refs so stop can remove them and prevent accumulation across play/stop cycles
+        audioEventHandlersRef.current = { playing: handlePlaying, waiting: handleWaiting, stalled: handleStalled };
+
         audioRef.current.addEventListener('playing', handlePlaying);
         audioRef.current.addEventListener('waiting', handleWaiting);
         audioRef.current.addEventListener('stalled', handleStalled);
@@ -325,6 +343,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
           audioRef.current.removeEventListener('playing', handlePlaying);
           audioRef.current.removeEventListener('waiting', handleWaiting);
           audioRef.current.removeEventListener('stalled', handleStalled);
+          audioEventHandlersRef.current = null;
           
           const audioError = (error.target as HTMLAudioElement)?.error;
           if (audioError) {
