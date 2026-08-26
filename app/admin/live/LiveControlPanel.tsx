@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SerializedAdmin } from "@/lib/types/admin";
 import Link from "next/link";
 import BrowserEncoder from "./BrowserEncoder";
+import { useBroadcast } from "../BroadcastProvider";
 
 interface LiveControlPanelProps {
   admin: SerializedAdmin;
@@ -123,6 +124,23 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
+
+  const { setAdmin, setIsStreaming, setTitle: setBroadcastTitle, setLecturer: setBroadcastLecturer } = useBroadcast();
+
+  // Register admin in broadcast context so layout can mount BrowserEncoder
+  useEffect(() => {
+    setAdmin(admin);
+    return () => setAdmin(null);
+  }, [admin, setAdmin]);
+
+  // Keep broadcast context title/lecturer in sync
+  useEffect(() => {
+    setBroadcastTitle(title || 'Live Lecture');
+  }, [title, setBroadcastTitle]);
+
+  useEffect(() => {
+    setBroadcastLecturer(lecturer || admin.name || admin.email);
+  }, [lecturer, admin, setBroadcastLecturer]);
 
   useEffect(() => {
     fetchLiveState();
@@ -316,10 +334,12 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
             title={title || 'Live Lecture'}
             lecturer={lecturer || admin.name || admin.email}
             onStreamStart={() => {
+              setIsStreaming(true);
               setMessage("🎙️ Browser streaming started! You are now live.");
               fetchLiveState();
             }}
             onStreamStop={() => {
+              setIsStreaming(false);
               setMessage("✅ Browser streaming stopped successfully.");
               fetchLiveState();
             }}
