@@ -262,120 +262,107 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
     setMessage("");
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("title", title.trim());
-      formData.append("description", description.trim());
-      formData.append("lecturerName", lecturerName.trim());
-      formData.append("type", type);
+      // Step 1: Get presigned URL from our API (tiny request — just metadata)
+      setCurrentStage({ name: "preparing", progress: 5, description: "Preparing upload..." });
 
-      formData.append("tags", tags.trim());
-      if (year.trim()) {
-        formData.append("year", year.trim());
-      }
-
-      // Add new access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
-      formData.append("visibility", visibility);
-      formData.append("broadcastReady", broadcastReady.toString());
-      formData.append("preferredStorage", preferredStorage);
-      if (visibility === 'shared' && selectedPresenters.length > 0) {
-        formData.append("sharedWith", JSON.stringify(selectedPresenters));
-      }
-
-      const xhr = new XMLHttpRequest();
-
-      // Track upload progress with realistic stages
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) {
-          const uploadPercentage = Math.round((e.loaded / e.total) * 100);
-          // Upload is only 60% of the total process
-          const totalProgress = Math.round(uploadPercentage * 0.6);
-          
-          setUploadProgress({
-            loaded: e.loaded,
-            total: e.total,
-            percentage: uploadPercentage
-          });
-          
-          setCurrentStage({
-            name: "uploading",
-            progress: totalProgress,
-            description: "Uploading to server..."
-          });
-        }
+      const contentType = selectedFile.type || "audio/mpeg";
+      const urlResponse = await fetch("/api/audio/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: selectedFile.name,
+          contentType,
+          fileSize: selectedFile.size,
+        }),
       });
 
-      // Handle response
-      xhr.addEventListener("load", () => {
-        // Simulate processing stages
-        setCurrentStage({
-          name: "processing",
-          progress: 70,
-          description: "Processing audio file..."
+      if (!urlResponse.ok) {
+        const err = await urlResponse.json();
+        throw new Error(err.message || "Failed to get upload URL");
+      }
+
+      const { presignedUrl, storageKey, storageUrl, cdnUrl } = await urlResponse.json();
+
+      // Step 2: Upload file directly to DigitalOcean Spaces (bypasses Vercel entirely)
+      setCurrentStage({ name: "uploading", progress: 10, description: "Uploading to storage..." });
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 80); // maps to 10–90% range
+            setUploadProgress({ loaded: e.loaded, total: e.total, percentage: Math.round((e.loaded / e.total) * 100) });
+            setCurrentStage({ name: "uploading", progress: 10 + pct, description: "Uploading to storage..." });
+          }
         });
-        
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Storage upload failed: ${xhr.status} ${xhr.statusText}`));
+          }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+
+        // PUT directly to DigitalOcean Spaces — no Vercel involved
+        xhr.open("PUT", presignedUrl);
+        xhr.setRequestHeader("Content-Type", contentType);
+        xhr.setRequestHeader("x-amz-acl", "public-read");
+        xhr.send(selectedFile);
+      });
+
+      // Step 3: Save metadata to DB via our API (tiny JSON request — well under 4.5MB)
+      setCurrentStage({ name: "processing", progress: 92, description: "Saving to database..." });
+
+      const metaResponse = await fetch("/api/audio/complete-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storageKey, storageUrl, cdnUrl,
+          fileSize: selectedFile.size,
+          fileName: selectedFile.name,
+          contentType,
+          title: title.trim(),
+          description: description.trim(),
+          lecturerName: lecturerName.trim(),
+          type,
+          tags: tags.trim(),
+          year: year.trim() || undefined,
+          visibility,
+          broadcastReady,
+          preferredStorage,
+          sharedWith: visibility === 'shared' && selectedPresenters.length > 0
+            ? JSON.stringify(selectedPresenters)
+            : undefined,
+        }),
+      });
+
+      const result = await metaResponse.json();
+
+      if (result.success) {
+        setCurrentStage({ name: "complete", progress: 100, description: "Upload complete!" });
         setTimeout(() => {
-          setCurrentStage({
-            name: "saving",
-            progress: 85,
-            description: "Saving to database..."
-          });
-          
+          setUploadStatus("success");
+          setMessage(result.needsConversion
+            ? "Audio uploaded successfully! Converting to MP3 for web playback. Refresh in a few moments."
+            : "Audio uploaded successfully!");
           setTimeout(() => {
-            if (xhr.status === 200) {
-              const response = JSON.parse(xhr.responseText);
-              if (response.success) {
-                setCurrentStage({
-                  name: "complete",
-                  progress: 100,
-                  description: "Upload complete!"
-                });
-                
-                setTimeout(() => {
-                  setUploadStatus("success");
-                  // Show different messages based on conversion status
-                  if (response.needsConversion) {
-                    setMessage("Audio uploaded successfully! Converting to MP3 for web playback. Refresh the Audio Library page in a few moments to see the converted file.");
-                  } else {
-                    setMessage("Audio uploaded successfully!");
-                  }
-                  setTimeout(() => {
-                    resetForm();
-                    onUploadSuccess();
-                  }, response.needsConversion ? 4000 : 2000); // Longer delay for conversion message
-                }, 500);
-              } else {
-                setUploadStatus("error");
-                setError(response.message || "Upload failed");
-              }
-            } else {
-              setUploadStatus("error");
-              let errorMessage = `Upload failed: ${xhr.statusText}`;
-              
-              // Check for schema validation error
-              if (xhr.responseText && xhr.responseText.includes('not a valid enum value')) {
-                errorMessage = "Database schema needs updating. Please restart the development server and try again.";
-              }
-              
-              setError(errorMessage);
-            }
-          }, 800);
-        }, 600);
-      });
-
-      xhr.addEventListener("error", () => {
+            resetForm();
+            onUploadSuccess();
+          }, result.needsConversion ? 4000 : 2000);
+        }, 500);
+      } else {
         setUploadStatus("error");
-        setError("Network error during upload");
-      });
-
-      // Start upload
-      xhr.open("POST", "/api/audio/upload");
-      xhr.send(formData);
+        setError(result.message || "Upload failed");
+      }
 
     } catch (error) {
       console.error("Upload error:", error);
       setUploadStatus("error");
-      setError("An unexpected error occurred");
+      setError(error instanceof Error ? error.message : "An unexpected error occurred");
     }
   };
 
