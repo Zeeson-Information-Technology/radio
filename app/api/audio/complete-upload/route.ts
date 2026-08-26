@@ -191,7 +191,10 @@ export async function POST(request: NextRequest) {
       visibility: audioRecording.visibility,
     });
   } catch (error) {
-    console.error("Complete upload error:", error);
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("Complete upload error:", msg);
+    if (stack) console.error("Stack:", stack);
+    return NextResponse.json({ success: false, message: msg || "Internal server error" }, { status: 500 });
   }
 }

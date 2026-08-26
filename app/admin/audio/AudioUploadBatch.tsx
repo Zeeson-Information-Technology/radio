@@ -109,62 +109,93 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
   };
 
   const uploadSingleFile = async (batchFile: BatchFile): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const formData = new FormData();
-      formData.append("file", batchFile.file);
-      formData.append("title", batchFile.title.trim());
-      formData.append("description", batchFile.description.trim());
-      formData.append("lecturerName", batchFile.lecturerName.trim());
-      formData.append("type", batchFile.type);
-      formData.append("tags", batchFile.tags.trim());
-      if (batchFile.year.trim()) {
-        formData.append("year", batchFile.year.trim());
-      }
-      formData.append("visibility", "public");
-
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) {
-          const percentage = Math.round((e.loaded / e.total) * 100);
-          updateFile(batchFile.id, { progress: percentage });
-        }
-      });
-
-      xhr.addEventListener("load", () => {
-        if (xhr.status === 200) {
-          const response = JSON.parse(xhr.responseText);
-          if (response.success) {
-            updateFile(batchFile.id, { status: "success", progress: 100 });
-            resolve(true);
-          } else {
-            updateFile(batchFile.id, {
-              status: "error",
-              error: response.message || "Upload failed",
-            });
-            resolve(false);
-          }
-        } else {
-          updateFile(batchFile.id, {
-            status: "error",
-            error: `Server error: ${xhr.statusText}`,
-          });
-          resolve(false);
-        }
-      });
-
-      xhr.addEventListener("error", () => {
-        updateFile(batchFile.id, {
-          status: "error",
-          error: "Network error",
-        });
-        resolve(false);
-      });
-
+    try {
       updateFile(batchFile.id, { status: "uploading", progress: 0 });
-      xhr.open("POST", "/api/audio/upload");
-      xhr.send(formData);
-    });
+
+      // Step 1: Get presigned URL
+      const contentType = batchFile.file.type || "audio/mpeg";
+      const urlRes = await fetch("/api/audio/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: batchFile.file.name,
+          contentType,
+          fileSize: batchFile.file.size,
+        }),
+      });
+
+      if (!urlRes.ok) {
+        const err = await urlRes.json();
+        updateFile(batchFile.id, { status: "error", error: err.message || "Failed to get upload URL" });
+        return false;
+      }
+
+      const { presignedUrl, storageKey, storageUrl, cdnUrl } = await urlRes.json();
+
+      // Step 2: PUT directly to DigitalOcean Spaces
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 90);
+            updateFile(batchFile.id, { progress: pct });
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Storage upload failed: ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+
+        xhr.open("PUT", presignedUrl);
+        xhr.setRequestHeader("Content-Type", contentType);
+        xhr.setRequestHeader("x-amz-acl", "public-read");
+        xhr.send(batchFile.file);
+      });
+
+      updateFile(batchFile.id, { progress: 95 });
+
+      // Step 3: Save metadata
+      const metaRes = await fetch("/api/audio/complete-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storageKey, storageUrl, cdnUrl,
+          fileSize: batchFile.file.size,
+          fileName: batchFile.file.name,
+          contentType,
+          title: batchFile.title.trim(),
+          description: batchFile.description.trim(),
+          lecturerName: batchFile.lecturerName.trim(),
+          type: batchFile.type,
+          tags: batchFile.tags.trim(),
+          year: batchFile.year.trim() || undefined,
+          visibility: "public",
+          broadcastReady: false,
+          preferredStorage: "digitalocean",
+        }),
+      });
+
+      const result = await metaRes.json();
+
+      if (result.success) {
+        updateFile(batchFile.id, { status: "success", progress: 100 });
+        return true;
+      } else {
+        updateFile(batchFile.id, { status: "error", error: result.message || "Upload failed" });
+        return false;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      updateFile(batchFile.id, { status: "error", error: msg });
+      return false;
+    }
   };
 
   const uploadAll = async () => {
