@@ -394,39 +394,14 @@ class WebSocketHandler {
     console.log(`🔌 Disconnected: ${user.email}`);
 
     const currentBroadcast = this.broadcastService.getCurrentBroadcast();
-    if (!currentBroadcast || currentBroadcast.user.userId !== user.userId) {
-      return;
-    }
-
-    // Grace period: wait 3 seconds before stopping.
-    // This allows the admin to navigate between pages — the hidden BrowserEncoder
-    // in the layout disconnects, then the visible one reconnects within ~1-2 seconds.
-    // If the same user reconnects before the timeout fires, we cancel the stop.
-    console.log(`⏳ Disconnect grace period started for ${user.email} (3s)`);
-
-    const stopTimeout = setTimeout(async () => {
-      // Re-check: if the user reconnected during the grace period, the ws on
-      // currentBroadcast will have been replaced — the broadcast stays alive.
-      const broadcast = this.broadcastService.getCurrentBroadcast();
-      if (!broadcast || broadcast.user.userId !== user.userId) {
-        // Already cleaned up or different user
-        return;
-      }
-
-      // Check if the WebSocket is still open — reconnection replaces it
-      const ws = broadcast.ws;
-      if (ws && (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING)) {
-        console.log(`✅ User ${user.email} reconnected during grace period — broadcast continues`);
-        return;
-      }
-
-      console.log(`🛑 Grace period expired — stopping broadcast for ${user.email}`);
+    if (currentBroadcast && currentBroadcast.user.userId === user.userId) {
+      // Stop the broadcast when admin disconnects (simplified behavior)
+      console.log(`🛑 Stopping broadcast for ${user.email} due to disconnection`);
+      
       await this.broadcastService.stopStreaming(null, user);
-      console.log(`📡 Broadcast stopped for ${user.email}`);
-    }, 3000);
-
-    // Store the timeout so processAuthenticatedConnection can cancel it on reconnect
-    currentBroadcast.cleanupTimeout = stopTimeout;
+      
+      console.log(`📡 Broadcast stopped for ${user.email} - they can start a new session when they return`);
+    }
   }
 
   handleError(user, error) {
