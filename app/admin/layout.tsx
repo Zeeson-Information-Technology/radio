@@ -37,6 +37,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
             admin={admin}
             title={title}
             lecturer={lecturer}
+            autoReconnect={true}
             onStreamStart={() => setIsStreaming(true)}
             onStreamStop={() => setIsStreaming(false)}
             onError={() => {}}

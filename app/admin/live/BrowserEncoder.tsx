@@ -22,7 +22,8 @@ interface BrowserEncoderProps {
   onError?: (error: string) => void;
   title?: string;
   lecturer?: string;
-  admin?: any; // Add admin prop for BroadcastControlPanel
+  admin?: any;
+  autoReconnect?: boolean; // When true, automatically reconnects to an existing session on mount
 }
 
 interface StreamConfig {
@@ -33,7 +34,7 @@ interface StreamConfig {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error';
 
-export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer, admin }: BrowserEncoderProps) {
+export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, title, lecturer, admin, autoReconnect = false }: BrowserEncoderProps) {
   // State management
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [audioLevel, setAudioLevel] = useState(0);
@@ -482,10 +483,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     };
 
     checkSupport();
-    // DISABLED: Auto-reconnect was causing broadcasts to restart on page load
-    // Users now must manually click "Start Broadcasting" to begin broadcasting
-    // This gives explicit control over when streams start/stop
-    // checkExistingSession();
+    // autoReconnect is true only for the hidden background instance in the admin layout.
+    // The visible instance on the live page requires a manual click to start.
+    if (autoReconnect) {
+      checkExistingSession();
+    }
   }, []);
 
   // Cleanup on unmount
