@@ -18,6 +18,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   const { showError } = useToast();
   const { confirm } = useConfirm();
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   
   // Ensure we always have valid liveData with proper fallbacks
   const [liveData, setLiveData] = useState<LiveData>(() => {
@@ -266,8 +267,9 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
       if (isPlaying) {
         // Stop playing
         audioRef.current.pause();
-        audioRef.current.currentTime = 0;
+        audioRef.current.src = '';
         setIsPlaying(false);
+        setIsBuffering(false);
         console.log('🔇 Audio stopped');
       } else {
         // Check if broadcast is actually live before attempting to play
@@ -301,11 +303,28 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         // and avoids a redundant HEAD request that wastes a connection
         audioRef.current.src = liveData.streamUrl;
 
+        // Show buffering spinner immediately — audio isn't audible yet
+        setIsBuffering(true);
+
+        // 'playing' fires when audio actually starts outputting sound
+        const handlePlaying = () => setIsBuffering(false);
+        // 'waiting'/'stalled' fire on slow connections or mid-stream rebuffering
+        const handleWaiting = () => setIsBuffering(true);
+        const handleStalled = () => setIsBuffering(true);
+
+        audioRef.current.addEventListener('playing', handlePlaying);
+        audioRef.current.addEventListener('waiting', handleWaiting);
+        audioRef.current.addEventListener('stalled', handleStalled);
+
         // Error handler — fires if the stream can't be decoded or connection fails
         const handleError = (error: Event) => {
           console.error('❌ Audio error event:', error);
           setIsPlaying(false);
+          setIsBuffering(false);
           audioRef.current.removeEventListener('error', handleError);
+          audioRef.current.removeEventListener('playing', handlePlaying);
+          audioRef.current.removeEventListener('waiting', handleWaiting);
+          audioRef.current.removeEventListener('stalled', handleStalled);
           
           const audioError = (error.target as HTMLAudioElement)?.error;
           if (audioError) {
@@ -334,6 +353,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
     } catch (error) {
       console.error('Audio playback error:', error);
       setIsPlaying(false);
+      setIsBuffering(false);
       
       // Provide user-friendly error message
       if (error instanceof Error) {
@@ -408,6 +428,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
               <PlayerControls 
                 liveData={liveData}
                 isPlaying={isPlaying}
+                isBuffering={isBuffering}
                 audioRef={audioRef}
                 onPlayPause={handlePlayPause}
                 onRefresh={handleRefresh}

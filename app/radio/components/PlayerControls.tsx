@@ -6,6 +6,7 @@ import { LiveData } from '../types';
 interface PlayerControlsProps {
   liveData: LiveData;
   isPlaying: boolean;
+  isBuffering?: boolean;
   audioRef: RefObject<HTMLAudioElement>;
   onPlayPause: () => void;
   onRefresh: () => void;
@@ -15,6 +16,7 @@ interface PlayerControlsProps {
 export default function PlayerControls({ 
   liveData, 
   isPlaying, 
+  isBuffering = false,
   audioRef, 
   onPlayPause, 
   onRefresh, 
@@ -76,7 +78,7 @@ export default function PlayerControls({
         {/* Play/Pause Button */}
         <button
           onClick={onPlayPause}
-          disabled={!liveData.isLive && !isPlaying}
+          disabled={(!liveData.isLive && !isPlaying) || isBuffering}
           className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-2xl transition-all duration-300 transform hover:scale-105 mb-4 mx-auto ${
             liveData.isLive || isPlaying
               ? isPlaying
@@ -96,7 +98,12 @@ export default function PlayerControls({
               : "Start listening"
           }
         >
-          {isPlaying ? (
+          {isBuffering ? (
+            <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+          ) : isPlaying ? (
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6 6h12v12H6z"/>
             </svg>
@@ -109,7 +116,9 @@ export default function PlayerControls({
 
         {/* Status Text */}
         <p className="mt-3 text-lg font-semibold text-slate-700 text-center">
-          {isPlaying 
+          {isBuffering
+            ? "Connecting to stream..."
+            : isPlaying 
             ? liveData.isMuted 
               ? "Connected (Presenter on Break)" 
               : liveData.currentAudioFile 
@@ -121,7 +130,9 @@ export default function PlayerControls({
           }
         </p>
         <p className="text-sm text-slate-500 mt-1 text-center">
-          {liveData.isMuted 
+          {isBuffering
+            ? "Please wait, loading audio stream..."
+            : liveData.isMuted 
             ? "Stream available but currently muted" 
             : liveData.currentAudioFile 
               ? "Al-Manhaj Radio Live Stream" 
