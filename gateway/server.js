@@ -8,6 +8,15 @@
 // Load environment variables
 require('dotenv').config();
 
+const { execSync } = require('child_process');
+
+// Kill any orphaned FFmpeg processes from a previous crashed session
+// before starting fresh — prevents memory leaks accumulating over restarts
+try {
+  execSync('pkill -9 -f "ffmpeg.*icecast" 2>/dev/null || true', { stdio: 'ignore' });
+  console.log('🧹 Cleared any orphaned FFmpeg processes');
+} catch (_) { /* ignore — pkill exits 1 when nothing matched */ }
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
