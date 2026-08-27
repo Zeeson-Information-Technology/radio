@@ -288,17 +288,43 @@ class BroadcastService {
 
     this.ffmpegProcess.on('exit', (code, signal) => {
       console.log(`🔚 FFmpeg exited with code ${code}, signal ${signal}`);
+      this.ffmpegProcess = null;
       this.isStreaming = false;
-      
+
       // Stop live audio stream
       if (this.testStreamRoute && this.testStreamRoute.stopLiveAudioStream) {
         this.testStreamRoute.stopLiveAudioStream();
       }
-      
-      // If FFmpeg exits immediately after spawn, it means there was a startup error
-      if (code !== 0 && code !== null) {
+
+      // Exit code 224 = Broken pipe — Icecast restarted (e.g. log rotation).
+      // Auto-recover: wait 3 seconds for Icecast to come back up, then restart FFmpeg.
+      // The admin's WebSocket and microphone are still active — only FFmpeg died.
+      const isBrokenPipe = code === 224 || signal === 'SIGPIPE';
+      const wasIntentionallyStopped = !this.currentBroadcast;
+
+      if (isBrokenPipe && !wasIntentionallyStopped && this.currentBroadcast) {
+        const broadcast = this.currentBroadcast;
+        console.log(`🔄 FFmpeg broken pipe detected — auto-recovering in 3s for ${broadcast.user.email}`);
+
+        setTimeout(() => {
+          // Only restart if the broadcast is still active (admin didn't stop manually)
+          if (!this.currentBroadcast) {
+            console.log('⏭️ Broadcast was stopped manually — skipping auto-recovery');
+            return;
+          }
+          console.log(`🔄 Auto-restarting FFmpeg for ${broadcast.user.email}`);
+          const audioConfig = {
+            sampleRate: 44100,
+            channels: 1,
+            bitrate: 128
+          };
+          this.startFFmpeg(broadcast.ws, broadcast.user, audioConfig);
+        }, 3000);
+        return;
+      }
+
+      if (code !== 0 && code !== null && !wasIntentionallyStopped) {
         console.error(`❌ FFmpeg failed with exit code: ${code}`);
-        
         if (ws && ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({
             type: 'stream_error',
