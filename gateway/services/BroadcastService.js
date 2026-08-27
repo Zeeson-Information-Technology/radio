@@ -526,38 +526,34 @@ class BroadcastService {
     }
 
     // CRITICAL FIX: Mark as streaming when we receive first audio chunk
-    // Sometimes FFmpeg connection succeeds but doesn't output the detection string
     if (!this.isStreaming && this.ffmpegProcess && this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
       console.log('✅ FFmpeg streaming started - first audio chunk received');
       this.isStreaming = true;
     }
 
     try {
-      // Check if FFmpeg stdin is writable before writing
       if (this.ffmpegProcess.stdin && this.ffmpegProcess.stdin.writable) {
-        // Log audio data write periodically (every 50 writes to avoid spam)
-        if (!this.audioWriteCount) {
-          this.audioWriteCount = 0;
-          this.audioWriteStartTime = Date.now();
-        }
-        
-        this.audioWriteCount++;
-        
+        this.audioWriteCount = (this.audioWriteCount || 0) + 1;
+        if (!this.audioWriteStartTime) this.audioWriteStartTime = Date.now();
+
         if (this.audioWriteCount % 50 === 0) {
           const elapsed = Date.now() - this.audioWriteStartTime;
           const rate = (this.audioWriteCount / elapsed * 1000).toFixed(1);
           console.log(`✍️ Audio data written to FFmpeg: ${this.audioWriteCount} chunks (${rate} chunks/sec), buffer size: ${audioBuffer.length} bytes`);
         }
-        
-        // Write audio data to FFmpeg
-        this.ffmpegProcess.stdin.write(audioBuffer);
+
+        // When muted, send silence (zeroed PCM) instead of real audio.
+        // FFmpeg keeps running and Icecast keeps the stream alive —
+        // listeners stay connected and hear silence, not a disconnection.
+        const isMuted = this.currentBroadcast && this.currentBroadcast.isMuted;
+        const dataToWrite = isMuted ? Buffer.alloc(audioBuffer.length, 0) : audioBuffer;
+
+        this.ffmpegProcess.stdin.write(dataToWrite);
       } else {
         console.warn('⚠️ FFmpeg stdin not writable, skipping audio data');
       }
     } catch (error) {
       console.error('❌ Error writing to ffmpeg:', error);
-      
-      // If write fails consistently, the stream may be broken
       if (error.code === 'EPIPE' || error.code === 'ECONNRESET') {
         console.error('🚨 FFmpeg pipe broken - stream may need restart');
         this.isStreaming = false;
