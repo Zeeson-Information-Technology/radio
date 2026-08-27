@@ -144,14 +144,25 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
               case 'broadcast_mute':
               case 'broadcast_unmute':
               case 'broadcast_muted':
-              case 'broadcast_unmuted':
+              case 'broadcast_unmuted': {
+                const nowMuted = data.type === 'broadcast_mute' || data.type === 'broadcast_muted';
                 console.log(`📡 Received ${data.type} notification`);
                 setLiveData(prev => ({
                   ...prev,
-                  isMuted: data.type === 'broadcast_mute' || data.type === 'broadcast_muted',
+                  isMuted: nowMuted,
                   mutedAt: data.mutedAt || null
                 }));
+                // When admin unmutes, briefly show buffering spinner so the listener
+                // knows audio is resuming — the stream was silent, now real audio
+                // is flowing again and may take 1-2s to reach the listener's buffer.
+                if (!nowMuted) {
+                  setIsBuffering(true);
+                  // The 'playing' event on the audio element won't fire again because
+                  // the stream never stopped — manually clear after 3 seconds at most.
+                  setTimeout(() => setIsBuffering(false), 3000);
+                }
                 break;
+              }
                 
               case 'audio_playback_start':
                 console.log('📡 Received audio playback start notification');
@@ -355,7 +366,12 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 showError('Audio Format Error', 'There was a problem with the audio format. Please try refreshing the page.');
                 break;
               case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
+                // Only show error if the broadcast has actually ended.
+                // If isLive is still true, the stream is temporarily unreachable
+                // (e.g. listener stopped and replayed too quickly) — no popup needed.
+                if (!liveData.isLive) {
+                  showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
+                }
                 break;
               default:
                 showError('Playback Error', 'Unable to play the audio stream. Please try again in a moment.');
@@ -379,7 +395,10 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         if (error.name === 'NotAllowedError') {
           showError('Audio Permission Required', 'Please allow audio playback in your browser. Click the speaker icon in the address bar if needed.');
         } else if (error.name === 'NotSupportedError') {
-          showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
+          // Only show if broadcast actually ended — not if listener stopped/replayed quickly
+          if (!liveData.isLive) {
+            showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
+          }
         } else if (error.name === 'AbortError') {
           showError('Connection Interrupted', 'The audio connection was interrupted. Please try again.');
         } else {
