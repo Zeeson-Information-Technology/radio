@@ -430,6 +430,16 @@ class BroadcastService {
       console.log(`🛑 Terminating FFmpeg process`);
       try {
         this.ffmpegProcess.kill('SIGTERM');
+        // Force kill after 3 seconds if SIGTERM didn't work
+        const ffmpegRef = this.ffmpegProcess;
+        setTimeout(() => {
+          try {
+            if (ffmpegRef && !ffmpegRef.killed) {
+              ffmpegRef.kill('SIGKILL');
+              console.log('🛑 Force killed FFmpeg with SIGKILL');
+            }
+          } catch (_) {}
+        }, 3000);
       } catch (error) {
         console.warn(`⚠️ Error killing FFmpeg:`, error.message);
       }
