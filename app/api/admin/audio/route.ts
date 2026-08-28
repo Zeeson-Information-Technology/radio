@@ -133,17 +133,36 @@ export async function GET(request: NextRequest) {
         break;
 
       default:
-        // All accessible files (Requirements 8.5, 8.6, 8.7)
-        audioFiles = await (AudioRecording as any).getAccessibleFiles(admin._id.toString(), admin.role)
-          .find(baseQuery)
-          .select('title description lecturerName category duration fileSize playbackUrl cdnUrl visibility sharedWith createdBy broadcastReady createdAt broadcastUsageCount conversionStatus conversionError')
-          .sort({ broadcastUsageCount: -1, createdAt: -1 })
-          .limit(limit)
-          .skip(offset)
-          .lean();
-        
-        totalCount = await (AudioRecording as any).getAccessibleFiles(admin._id.toString(), admin.role)
-          .countDocuments(baseQuery);
+        // All accessible files — build a combined query merging access control
+        // with any extra filters (category, search, broadcastReady)
+        {
+          // Get the access control conditions from getAccessibleFiles by
+          // extracting its internal query, then merge with baseQuery
+          const accessQuery: any = { status: 'active' };
+
+          if (admin.role !== 'super_admin') {
+            accessQuery.$or = [
+              { visibility: 'public' },
+              { isPublic: true },
+              { accessLevel: 'public' },
+              { visibility: 'shared', sharedWith: admin._id.toString() },
+              { createdBy: admin._id },
+            ];
+          }
+
+          // Merge baseQuery on top of access conditions
+          // baseQuery already has status: 'active', plus optional category/$text/broadcastReady
+          const finalQuery = { ...accessQuery, ...baseQuery };
+
+          audioFiles = await AudioRecording.find(finalQuery)
+            .select('title description lecturerName category duration fileSize playbackUrl cdnUrl visibility sharedWith createdBy broadcastReady createdAt broadcastUsageCount conversionStatus conversionError')
+            .sort({ broadcastUsageCount: -1, createdAt: -1 })
+            .limit(limit)
+            .skip(offset)
+            .lean();
+
+          totalCount = await AudioRecording.countDocuments(finalQuery);
+        }
         break;
     }
 
