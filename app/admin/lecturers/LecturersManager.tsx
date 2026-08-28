@@ -13,7 +13,11 @@ interface Lecturer {
   isVerified: boolean;
 }
 
-export default function LecturersManager() {
+interface Props {
+  showBackLink?: boolean;
+}
+
+export default function LecturersManager({ showBackLink = true }: Props) {
   const [lecturers, setLecturers] = useState<Lecturer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -133,12 +137,14 @@ export default function LecturersManager() {
                   Manage the list of speakers shown when uploading audio files
                 </p>
               </div>
-              <Link
-                href="/admin/live"
-                className="text-sm px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-center"
-              >
-                ← Back
-              </Link>
+              {showBackLink && (
+                <Link
+                  href="/admin/live"
+                  className="text-sm px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-center"
+                >
+                  ← Back
+                </Link>
+              )}
             </div>
           </div>
 

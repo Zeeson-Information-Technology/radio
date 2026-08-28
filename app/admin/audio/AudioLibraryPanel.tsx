@@ -8,6 +8,7 @@ import AudioUpload from "./AudioUpload";
 import AudioUploadBatch from "./AudioUploadBatch";
 import AudioList from "./AudioList";
 import AudioLibraryManager from "./AudioLibraryManager";
+import LecturersManager from "../lecturers/LecturersManager";
 
 interface AudioLibraryPanelProps {
   admin: SerializedAdmin;
@@ -176,7 +177,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
                     : "text-slate-600 hover:text-emerald-600 hover:bg-emerald-25"
                 }`}
               >
-                👨‍🏫 Lecturers
+                👨‍🏫 Speakers
               </button>
               
               <button
@@ -235,15 +236,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
 
             {activeTab === "lecturers" && (
               <div>
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Manage Lecturers</h2>
-                  <p className="text-slate-600">
-                    Manage Islamic scholars and speakers who appear in your audio library.
-                  </p>
-                </div>
-                <div className="text-center py-12 text-slate-500">
-                  <p className="text-lg">Coming soon...</p>
-                </div>
+                <LecturersManager showBackLink={false} />
               </div>
             )}
 
