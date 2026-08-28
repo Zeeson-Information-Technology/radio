@@ -121,12 +121,19 @@ class AudioInjectionSystem {
       throw new Error('AudioInjectionSystem not initialised — call initializeWithContext() first');
     }
 
-    // If already playing/paused, clean up old element first
-    if (this.playbackState.isPlaying || this.playbackState.isPaused) {
-      this.cleanupAudioElement();
-      // Brief drain wait (one render quantum ~3ms; 50ms is comfortable)
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    // Clean up any previous element regardless of state (covers the case where
+    // audio just completed and isPlaying/isPaused are both false but a mediaSource
+    // node from the previous play is still attached to injectionGainNode)
+    this.cleanupAudioElement();
+
+    // Pre-silence: ramp mic to 0 first and wait for the ramp + gateway buffer to drain
+    // before opening the injection gain. This prevents the presenter's voice from
+    // bleeding into the start of the next audio file on the listener side.
+    this.setMicGain(0);
+    this.setInjectionGain(0);
+    // Wait 80ms — covers the 10ms gain ramp + ~one ScriptProcessor buffer (4096/44100 ≈ 93ms)
+    // so the gateway receives silence before we open the injection gain.
+    await new Promise(resolve => setTimeout(resolve, 80));
 
     try {
       const audioElement = new Audio();
@@ -144,10 +151,6 @@ class AudioInjectionSystem {
       this.audioElement = audioElement;
       this.mediaSource = mediaSource;
 
-      // Switch gains: mute mic, open injection — one Web Audio scheduler call, sample-accurate
-      this.setMicGain(0);   // mic off → presenter silent
-      this.setInjectionGain(1); // audio on → listeners hear recording
-
       audioElement.onended = () => {
         if (this.audioElement === audioElement) this.handlePlaybackComplete();
       };
@@ -158,7 +161,12 @@ class AudioInjectionSystem {
         }
       };
 
+      // Start playback, then open injection gain after play() resolves so the
+      // audio element is actually producing frames before the gain opens
       await audioElement.play();
+
+      // Open injection gain now that audio is flowing
+      this.setInjectionGain(1);
 
       this.playbackState = {
         isPlaying: true,
@@ -358,12 +366,16 @@ class AudioInjectionSystem {
 
   private handlePlaybackComplete(): void {
     this.stopProgressTracking();
+
+    // Fade injection out before restoring mic to avoid a click on the last frame
+    this.setInjectionGain(0);
     this.cleanupAudioElement();
 
-    // Restore mic, silence injection
-    this.setMicGain(1);
-    this.setInjectionGain(0);
-    this.onMicrophoneMuted?.(false);
+    // Small wait for the 10ms gain ramp to complete before opening mic
+    setTimeout(() => {
+      this.setMicGain(1);
+      this.onMicrophoneMuted?.(false);
+    }, 20);
 
     this.playbackState = {
       isPlaying: false,
