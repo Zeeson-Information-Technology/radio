@@ -272,6 +272,14 @@ export default function LiveControlPanel({ admin }: LiveControlPanelProps) {
                     👥 Users
                   </Link>
                 )}
+                {(admin.role === "super_admin" || admin.role === "admin") && (
+                  <Link
+                    href="/admin/lecturers"
+                    className="px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all"
+                  >
+                    🎤 Speakers
+                  </Link>
+                )}
                 <Link
                   href="/admin/change-password"
                   className="px-4 py-2 text-sm font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg border border-stone-300 transition-all"
