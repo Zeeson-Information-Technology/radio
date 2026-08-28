@@ -121,19 +121,13 @@ class AudioInjectionSystem {
       throw new Error('AudioInjectionSystem not initialised — call initializeWithContext() first');
     }
 
-    // Clean up any previous element regardless of state (covers the case where
-    // audio just completed and isPlaying/isPaused are both false but a mediaSource
-    // node from the previous play is still attached to injectionGainNode)
+    // Clean up any previous element unconditionally — covers replay after completion
+    // where isPlaying/isPaused are both false but a stale mediaSource may still exist
     this.cleanupAudioElement();
 
-    // Pre-silence: ramp mic to 0 first and wait for the ramp + gateway buffer to drain
-    // before opening the injection gain. This prevents the presenter's voice from
-    // bleeding into the start of the next audio file on the listener side.
+    // Mute mic before audio starts — instantaneous gain change
     this.setMicGain(0);
     this.setInjectionGain(0);
-    // Wait 80ms — covers the 10ms gain ramp + ~one ScriptProcessor buffer (4096/44100 ≈ 93ms)
-    // so the gateway receives silence before we open the injection gain.
-    await new Promise(resolve => setTimeout(resolve, 80));
 
     try {
       const audioElement = new Audio();
@@ -367,15 +361,13 @@ class AudioInjectionSystem {
   private handlePlaybackComplete(): void {
     this.stopProgressTracking();
 
-    // Fade injection out before restoring mic to avoid a click on the last frame
+    // Zero injection gain and clean up — synchronous, no setTimeout
     this.setInjectionGain(0);
     this.cleanupAudioElement();
 
-    // Small wait for the 10ms gain ramp to complete before opening mic
-    setTimeout(() => {
-      this.setMicGain(1);
-      this.onMicrophoneMuted?.(false);
-    }, 20);
+    // Restore mic immediately — synchronous so nothing can interrupt it
+    this.setMicGain(1);
+    this.onMicrophoneMuted?.(false);
 
     this.playbackState = {
       isPlaying: false,
