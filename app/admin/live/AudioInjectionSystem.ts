@@ -1,51 +1,65 @@
 /**
  * Audio Injection System
- * Handles pre-recorded audio playback during live broadcasts
- * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8
+ * Injects pre-recorded audio into the live broadcast stream.
+ *
+ * Design: operates entirely inside the caller's (BrowserEncoder) AudioContext.
+ * No second AudioContext is created — this eliminates the browser auto-suspension
+ * bug and the cross-context MediaStream instability that caused ~3-min cutoffs.
+ *
+ * Graph (all nodes share one AudioContext):
+ *
+ *   micSource ──► micGain ──┐
+ *                           ├──► broadcaster destination (ScriptProcessor → gateway)
+ *   audioElement ──► injectionGain ──┘
+ *
+ * Switching between mic-only and audio+mic is done purely by gain values:
+ *   - Audio playing:  micGain=0, injectionGain=1  (mic muted, audio heard)
+ *   - Audio paused:   micGain=1, injectionGain=0  (presenter speaks, audio silent)
+ *   - Audio stopped:  micGain=1, injectionGain=0  (back to normal mic)
+ *
+ * This is instantaneous — no polling, no node reconnection, no cross-context streams.
  */
 
 import { envConsole } from '../../../lib/utils/console';
 
-interface InjectionAudioFile {
+export interface InjectionAudioFile {
   id: string;
   title: string;
   url: string;
   duration: number;
 }
 
-interface PlaybackState {
+export interface PlaybackState {
   isPlaying: boolean;
   isPaused: boolean;
   currentFile: InjectionAudioFile | null;
   progress: number;
-  startTime: number;
   pausedAt: number;
-  playbackSpeed: number;
 }
 
 class AudioInjectionSystem {
+  // Provided by BrowserEncoder — shared single AudioContext
   private audioContext: AudioContext | null = null;
-  private microphoneGainNode: GainNode | null = null;
-  private gainNode: GainNode | null = null;
-  private mixerNode: GainNode | null = null;
-  private destinationNode: MediaStreamAudioDestinationNode | null = null;
-  private microphoneStream: MediaStream | null = null;
-  
-  // HTML5 Audio for streaming + Web Audio for mixing
+  // The node that feeds the gateway ScriptProcessor
+  private broadcastDestination: AudioNode | null = null;
+
+  // Gain nodes — always connected, switched by value not by connect/disconnect
+  private micGainNode: GainNode | null = null;
+  private injectionGainNode: GainNode | null = null;
+
+  // Current audio element and its Web Audio source
   private audioElement: HTMLAudioElement | null = null;
   private mediaSource: MediaElementAudioSourceNode | null = null;
-  
+
   private playbackState: PlaybackState = {
     isPlaying: false,
     isPaused: false,
     currentFile: null,
     progress: 0,
-    startTime: 0,
     pausedAt: 0,
-    playbackSpeed: 1.0
   };
 
-  private progressInterval: NodeJS.Timeout | null = null;
+  private progressInterval: ReturnType<typeof setInterval> | null = null;
   private onProgressUpdate?: (progress: number, duration: number) => void;
   private onPlaybackComplete?: () => void;
   private onMicrophoneMuted?: (muted: boolean) => void;
@@ -61,423 +75,277 @@ class AudioInjectionSystem {
   }
 
   /**
-   * Initialize audio injection system with essential mixing for broadcast
+   * Initialize using the EXISTING AudioContext and mic source from BrowserEncoder.
+   * micSource   — the MediaStreamAudioSourceNode already created for the mic
+   * destination — the node that feeds the ScriptProcessor / gateway (e.g. processorRef)
+   * ctx         — the shared AudioContext
    */
-  async initialize(microphoneStream: MediaStream): Promise<void> {
-    try {
-      // Store microphone stream reference
-      this.microphoneStream = microphoneStream;
-      
-      // Create Web Audio context for mixing (essential for broadcast injection)
-      this.audioContext = new AudioContext();
-      
-      // Create microphone source and gain for muting during audio playback
-      const micSource = this.audioContext.createMediaStreamSource(microphoneStream);
-      this.microphoneGainNode = this.audioContext.createGain();
-      
-      // Create gain node for audio file volume control
-      this.gainNode = this.audioContext.createGain();
-      
-      // Create mixer node to combine microphone + audio file
-      this.mixerNode = this.audioContext.createGain();
-      
-      // Create destination for mixed output (THIS IS ESSENTIAL FOR BROADCAST)
-      this.destinationNode = this.audioContext.createMediaStreamDestination();
-      
-      // Connect microphone: micSource -> microphoneGain -> mixer -> destination
-      micSource.connect(this.microphoneGainNode);
-      this.microphoneGainNode.connect(this.mixerNode);
-      this.mixerNode.connect(this.destinationNode);
-      
-      console.log('✅ AudioInjectionSystem initialized with broadcast mixing');
-      envConsole.audioInjection.info('AudioInjectionSystem initialized successfully');
-      
-    } catch (error) {
-      console.error('❌ Failed to initialize AudioInjectionSystem:', error);
-      envConsole.audioInjection.error('Failed to initialize AudioInjectionSystem', error);
-      throw error;
-    }
+  initializeWithContext(
+    ctx: AudioContext,
+    micSource: MediaStreamAudioSourceNode,
+    destination: AudioNode
+  ): void {
+    this.audioContext = ctx;
+    this.broadcastDestination = destination;
+
+    // Mic gain — starts at 1 (open)
+    this.micGainNode = ctx.createGain();
+    this.micGainNode.gain.value = 1;
+
+    // Injection gain — starts at 0 (silent)
+    this.injectionGainNode = ctx.createGain();
+    this.injectionGainNode.gain.value = 0;
+
+    // Wire mic: micSource ──► micGain ──► destination
+    micSource.connect(this.micGainNode);
+    this.micGainNode.connect(destination);
+
+    // injectionGain output will connect to destination when a file is loaded
+    // (connect is lazy — we do it once in playAudioFile)
+
+    console.log('✅ AudioInjectionSystem initialised (shared AudioContext)');
+    envConsole.audioInjection.info('AudioInjectionSystem initialised with shared context');
   }
 
-  /**
-   * Load and play audio file with fast response + broadcast injection
-   * Requirements: 3.1, 3.2 - Display audio files and inject into broadcast stream
-   */
+  /** @deprecated kept for backwards compat — will no-op if called after initializeWithContext */
+  async initialize(_microphoneStream: MediaStream): Promise<void> {
+    // BrowserEncoder now calls initializeWithContext instead.
+    // This stub prevents crashes if anything still calls the old API.
+    console.warn('⚠️ AudioInjectionSystem.initialize() is deprecated — use initializeWithContext()');
+  }
+
+  // ─── Playback ───────────────────────────────────────────────────────────────
+
   async playAudioFile(audioFile: InjectionAudioFile): Promise<void> {
-    if (!this.audioContext || !this.gainNode || !this.mixerNode || !this.destinationNode) {
-      throw new Error('AudioInjectionSystem not initialized');
+    if (!this.audioContext || !this.injectionGainNode || !this.broadcastDestination) {
+      throw new Error('AudioInjectionSystem not initialised — call initializeWithContext() first');
     }
 
-    // If already playing, cleanly switch to new audio without triggering stop events
-    if (this.playbackState.isPlaying) {
-      console.log(`🔄 Switching from "${this.playbackState.currentFile?.title}" to "${audioFile.title}"`);
-      
-      // CRITICAL FIX: Complete cleanup before starting new audio
-      this.cleanupCurrentAudio();
-      
-      // Wait for cleanup to complete AND for any buffered audio to drain
-      await new Promise(resolve => setTimeout(resolve, 200)); // Increased from 100ms to 200ms
+    // If already playing/paused, clean up old element first
+    if (this.playbackState.isPlaying || this.playbackState.isPaused) {
+      this.cleanupAudioElement();
+      // Brief drain wait (one render quantum ~3ms; 50ms is comfortable)
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     try {
-      console.log(`🎵 Starting audio playback with broadcast injection: ${audioFile.title}`);
-      
-      // Use HTML5 Audio for fast loading and streaming (like UniversalAudioPlayer)
       const audioElement = new Audio();
       audioElement.crossOrigin = 'anonymous';
-      audioElement.preload = 'metadata'; // Fast response - only load metadata
-      
-      // Set up audio element for immediate streaming
+      audioElement.preload = 'auto';
       audioElement.src = audioFile.url;
-      
-      // CRITICAL: Create Web Audio source from HTML5 Audio for broadcast mixing
+
+      // Attach to Web Audio inside the SHARED context — no cross-context bridge
       const mediaSource = this.audioContext.createMediaElementSource(audioElement);
-      
-      // Connect to broadcast mixing chain: mediaSource -> gain -> mixer -> destination
-      mediaSource.connect(this.gainNode);
-      this.gainNode.connect(this.mixerNode);
-      
-      // Store references BEFORE setting up event handlers
+      mediaSource.connect(this.injectionGainNode);
+
+      // Connect injectionGain to broadcaster destination (idempotent — safe to call multiple times)
+      try { this.injectionGainNode.connect(this.broadcastDestination); } catch { /* already connected */ }
+
       this.audioElement = audioElement;
       this.mediaSource = mediaSource;
-      
-      // Automatically mute microphone during playback (Requirements 3.3)
-      this.muteMicrophone();
-      
-      // Set up event handlers with better error handling and reference checking
+
+      // Switch gains: mute mic, open injection — one Web Audio scheduler call, sample-accurate
+      this.setMicGain(0);   // mic off → presenter silent
+      this.setInjectionGain(1); // audio on → listeners hear recording
+
       audioElement.onended = () => {
-        // Only handle if this is still the current audio element
-        if (this.audioElement === audioElement && this.playbackState.currentFile?.id === audioFile.id) {
-          console.log(`✅ Audio playback completed: ${audioFile.title}`);
-          this.handlePlaybackComplete();
-        } else {
-          console.log('🔇 Ignoring ended event from old audio element during switch');
+        if (this.audioElement === audioElement) this.handlePlaybackComplete();
+      };
+      audioElement.onerror = () => {
+        if (this.audioElement === audioElement) {
+          console.error('❌ Audio element error during injection');
+          this.stopPlayback();
         }
       };
-      
-      audioElement.onerror = (error) => {
-        // Only handle if this is still the current audio element
-        if (this.audioElement === audioElement && this.playbackState.currentFile?.id === audioFile.id) {
-          console.error('❌ Audio element error:', error);
-          this.handlePlaybackError(new Error('Audio playback failed'));
-        } else {
-          console.log('🔇 Ignoring error from old audio element during switch');
-        }
-      };
-      
-      audioElement.onloadedmetadata = () => {
-        if (this.audioElement === audioElement && this.playbackState.currentFile?.id === audioFile.id) {
-          console.log(`✅ Audio metadata loaded: ${audioFile.title} (${audioFile.duration}s)`);
-        }
-      };
-      
-      audioElement.oncanplay = () => {
-        if (this.audioElement === audioElement && this.playbackState.currentFile?.id === audioFile.id) {
-          console.log(`✅ Audio ready for broadcast injection: ${audioFile.title}`);
-        }
-      };
-      
-      // Start playback immediately (streaming approach)
+
       await audioElement.play();
-      
-      // Update playback state ONLY if this is still the current element
-      if (this.audioElement === audioElement) {
-        this.playbackState = {
-          isPlaying: true,
-          isPaused: false,
-          currentFile: audioFile,
-          progress: 0,
-          startTime: Date.now(),
-          pausedAt: 0,
-          playbackSpeed: 1.0
-        };
-        
-        // Start progress tracking (Requirements 3.5)
-        this.startProgressTracking();
-        
-        console.log(`▶️ Playing with broadcast injection: ${audioFile.title}`);
-      } else {
-        // This audio was replaced during loading - clean it up
-        console.log('🔄 Audio was replaced during loading - cleaning up');
-        try {
-          audioElement.pause();
-          audioElement.src = '';
-          mediaSource.disconnect();
-        } catch (error) {
-          console.warn('⚠️ Error cleaning up replaced audio:', error);
-        }
-      }
-      
+
+      this.playbackState = {
+        isPlaying: true,
+        isPaused: false,
+        currentFile: audioFile,
+        progress: 0,
+        pausedAt: 0,
+      };
+
+      this.startProgressTracking();
+      console.log(`▶️ Injection playing: ${audioFile.title}`);
     } catch (error) {
-      console.error('❌ Failed to play audio file:', error);
-      // Clean up on error
-      this.cleanupCurrentAudio();
+      console.error('❌ Failed to play injection audio:', error);
+      this.cleanupAudioElement();
+      // Restore mic on failure
+      this.setMicGain(1);
+      this.setInjectionGain(0);
       throw error;
     }
   }
 
   /**
-   * Clean up current audio without triggering stop events (for switching)
-   */
-  private cleanupCurrentAudio(): void {
-    // Stop progress tracking
-    this.stopProgressTracking();
-    
-    // Clean up HTML5 Audio element WITHOUT triggering error handlers
-    if (this.audioElement) {
-      try {
-        // CRITICAL FIX: Remove ALL event listeners FIRST to prevent interference
-        this.audioElement.onended = null;
-        this.audioElement.onerror = null;
-        this.audioElement.onloadedmetadata = null;
-        this.audioElement.oncanplay = null;
-        this.audioElement.onloadstart = null;
-        this.audioElement.onloadeddata = null;
-        this.audioElement.oncanplaythrough = null;
-        this.audioElement.onplay = null;
-        this.audioElement.onpause = null;
-        this.audioElement.onstalled = null;
-        this.audioElement.onsuspend = null;
-        this.audioElement.onwaiting = null;
-        this.audioElement.onabort = null;
-        this.audioElement.onemptied = null;
-        
-        // Then clean up the element
-        this.audioElement.pause();
-        this.audioElement.currentTime = 0;
-        this.audioElement.src = '';
-        this.audioElement.load(); // Force cleanup of internal state
-        
-        // Additional cleanup: remove from DOM if it was added
-        if (this.audioElement.parentNode) {
-          this.audioElement.parentNode.removeChild(this.audioElement);
-        }
-      } catch (error) {
-        console.warn('⚠️ Error cleaning up audio element:', error);
-      }
-      this.audioElement = null;
-    }
-
-    // Disconnect Web Audio source
-    if (this.mediaSource) {
-      try {
-        this.mediaSource.disconnect();
-      } catch (error) {
-        console.warn('⚠️ Error disconnecting media source:', error);
-      }
-      this.mediaSource = null;
-    }
-  }
-
-  /**
-   * Pause audio playback
+   * Pause playback — mic is immediately restored so presenter can speak.
    */
   pausePlayback(): void {
-    if (!this.playbackState.isPlaying || this.playbackState.isPaused) {
-      return;
-    }
+    if (!this.playbackState.isPlaying || this.playbackState.isPaused) return;
+    if (!this.audioElement) return;
 
-    if (this.audioElement) {
-      try {
-        this.audioElement.pause();
-        this.playbackState.isPaused = true;
-        this.playbackState.isPlaying = false;
-        this.playbackState.pausedAt = this.audioElement.currentTime;
-        
-        console.log('⏸️ Audio playback paused at:', this.playbackState.pausedAt);
-      } catch (error) {
-        console.warn('⚠️ Error pausing audio:', error);
-      }
+    try {
+      this.audioElement.pause();
+      this.playbackState.isPaused = true;
+      this.playbackState.isPlaying = false;
+      this.playbackState.pausedAt = this.audioElement.currentTime;
+
+      // Restore mic immediately — presenter can now speak live
+      this.setMicGain(1);
+      this.setInjectionGain(0);
+
+      this.onMicrophoneMuted?.(false);
+      console.log('⏸️ Injection paused — mic restored for presenter speech');
+    } catch (error) {
+      console.warn('⚠️ Error pausing injection:', error);
     }
   }
 
   /**
-   * Resume audio playback from paused position
+   * Resume playback — mic is muted again, audio resumes instantly.
    */
   async resumePlayback(): Promise<void> {
-    if (!this.playbackState.isPaused || !this.playbackState.currentFile) {
-      return;
-    }
+    if (!this.playbackState.isPaused || !this.playbackState.currentFile) return;
+    if (!this.audioElement) return;
 
     try {
-      if (this.audioElement) {
-        // Resume from paused position
-        await this.audioElement.play();
-        
-        // Update state
-        this.playbackState.isPlaying = true;
-        this.playbackState.isPaused = false;
-        
-        console.log('▶️ Audio playback resumed from:', this.audioElement.currentTime);
-      }
+      // Mute mic before audio restarts — no overlap
+      this.setMicGain(0);
+      this.setInjectionGain(1);
+
+      await this.audioElement.play();
+
+      this.playbackState.isPlaying = true;
+      this.playbackState.isPaused = false;
+
+      this.onMicrophoneMuted?.(true);
+      console.log('▶️ Injection resumed');
     } catch (error) {
-      console.error('❌ Failed to resume audio playback:', error);
+      // On failure, restore mic so presenter isn't silenced
+      this.setMicGain(1);
+      this.setInjectionGain(0);
+      console.error('❌ Failed to resume injection:', error);
       throw error;
     }
   }
 
-  /**
-   * Seek to specific time in audio (simple HTML5 approach)
-   */
-  async seekTo(timeInSeconds: number): Promise<void> {
-    if (!this.playbackState.currentFile || !this.audioElement) {
-      return;
-    }
-
-    const duration = this.playbackState.currentFile.duration;
-    const seekTime = Math.max(0, Math.min(timeInSeconds, duration));
-    
-    try {
-      // Simple HTML5 Audio seeking (instant and reliable)
-      this.audioElement.currentTime = seekTime;
-      this.playbackState.progress = seekTime;
-      
-      console.log('⏭️ Audio seeked to:', seekTime);
-    } catch (error) {
-      console.error('❌ Failed to seek audio:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Skip forward by specified seconds
-   */
-  async skipForward(seconds: number = 10): Promise<void> {
-    if (!this.playbackState.currentFile) return;
-    
-    const currentTime = this.getCurrentTime();
-    const newTime = Math.min(currentTime + seconds, this.playbackState.currentFile.duration);
-    await this.seekTo(newTime);
-    
-    console.log(`⏩ Skipped forward ${seconds}s to:`, newTime);
-  }
-
-  /**
-   * Skip backward by specified seconds
-   */
-  async skipBackward(seconds: number = 10): Promise<void> {
-    const currentTime = this.getCurrentTime();
-    const newTime = Math.max(currentTime - seconds, 0);
-    await this.seekTo(newTime);
-    
-    console.log(`⏪ Skipped backward ${seconds}s to:`, newTime);
-  }
-
-  /**
-   * Get current playback time (simple HTML5 approach)
-   */
-  getCurrentTime(): number {
-    if (this.audioElement) {
-      // Use HTML5 Audio currentTime (most accurate and simple)
-      return this.audioElement.currentTime;
-    }
-    
-    if (this.playbackState.isPaused) {
-      return this.playbackState.pausedAt;
-    }
-    
-    return this.playbackState.progress;
-  }
-  /**
-   * Stop audio playback and restore microphone to broadcast
-   * Requirements: 3.6 - Manual stop functionality
-   */
   stopPlayback(): void {
-    // Stop HTML5 Audio element
-    if (this.audioElement) {
-      try {
-        this.audioElement.pause();
-        this.audioElement.currentTime = 0;
-        this.audioElement.src = '';
-      } catch (error) {
-        console.warn('⚠️ Error stopping audio element:', error);
-      }
-      this.audioElement = null;
-    }
-
-    // Disconnect Web Audio source from mixing chain
-    if (this.mediaSource) {
-      try {
-        this.mediaSource.disconnect();
-      } catch (error) {
-        console.warn('⚠️ Error disconnecting media source:', error);
-      }
-      this.mediaSource = null;
-    }
-
+    this.cleanupAudioElement();
     this.stopProgressTracking();
-    
-    // Restore microphone to broadcast (Requirements 3.4)
-    this.unmuteMicrophone();
-    
-    // Reset playback state
+
+    // Restore mic, silence injection
+    this.setMicGain(1);
+    this.setInjectionGain(0);
+    this.onMicrophoneMuted?.(false);
+
     this.playbackState = {
       isPlaying: false,
       isPaused: false,
       currentFile: null,
       progress: 0,
-      startTime: 0,
       pausedAt: 0,
-      playbackSpeed: 1.0
     };
 
-    console.log('⏹️ Audio playback stopped, microphone restored to broadcast');
+    console.log('⏹️ Injection stopped — mic restored');
   }
 
-  /**
-   * Mute microphone during audio playback
-   * Requirements: 3.3 - Automatic microphone muting
-   */
-  private muteMicrophone(): void {
-    if (this.microphoneGainNode) {
-      this.microphoneGainNode.gain.setValueAtTime(0, this.audioContext!.currentTime);
-      this.onMicrophoneMuted?.(true);
-      console.log('🎤🔇 Microphone muted for audio playback');
+  async seekTo(timeInSeconds: number): Promise<void> {
+    if (!this.audioElement || !this.playbackState.currentFile) return;
+    const seekTime = Math.max(0, Math.min(timeInSeconds, this.playbackState.currentFile.duration));
+    this.audioElement.currentTime = seekTime;
+    this.playbackState.progress = seekTime;
+  }
+
+  async skipForward(seconds = 10): Promise<void> {
+    await this.seekTo(this.getCurrentTime() + seconds);
+  }
+
+  async skipBackward(seconds = 10): Promise<void> {
+    await this.seekTo(this.getCurrentTime() - seconds);
+  }
+
+  // ─── State accessors ────────────────────────────────────────────────────────
+
+  isPlaying(): boolean { return this.playbackState.isPlaying; }
+  isPaused(): boolean  { return this.playbackState.isPaused; }
+  getCurrentFile(): InjectionAudioFile | null { return this.playbackState.currentFile; }
+  getProgress(): number { return this.playbackState.progress; }
+
+  getCurrentTime(): number {
+    if (this.audioElement) return this.audioElement.currentTime;
+    if (this.playbackState.isPaused) return this.playbackState.pausedAt;
+    return this.playbackState.progress;
+  }
+
+  setVolume(volume: number): void {
+    if (this.injectionGainNode && this.playbackState.isPlaying) {
+      this.injectionGainNode.gain.value = Math.max(0, Math.min(1, volume));
     }
   }
 
-  /**
-   * Unmute microphone after audio playback
-   * Requirements: 3.4 - Automatic microphone restoration
-   */
-  private unmuteMicrophone(): void {
-    if (this.microphoneGainNode) {
-      this.microphoneGainNode.gain.setValueAtTime(1, this.audioContext!.currentTime);
-      this.onMicrophoneMuted?.(false);
-      console.log('🎤🔊 Microphone restored after audio playback');
+  setMicrophoneVolume(volume: number): void {
+    if (this.micGainNode && !this.playbackState.isPlaying) {
+      this.micGainNode.gain.value = Math.max(0, Math.min(1, volume));
     }
   }
 
-  /**
-   * Start progress tracking (simplified HTML5 approach)
-   * Requirements: 3.5 - Display playback progress and remaining time
-   */
+  /** @deprecated — no longer used (no second context). Kept so callers don't crash. */
+  getMixedStream(): MediaStream | null { return null; }
+
+  // ─── Internal helpers ────────────────────────────────────────────────────────
+
+  private setMicGain(value: number): void {
+    if (this.micGainNode && this.audioContext) {
+      // Use linearRampToValueAtTime for a very short (~10ms) fade to avoid clicks
+      const t = this.audioContext.currentTime;
+      this.micGainNode.gain.cancelScheduledValues(t);
+      this.micGainNode.gain.setValueAtTime(this.micGainNode.gain.value, t);
+      this.micGainNode.gain.linearRampToValueAtTime(value, t + 0.01);
+    }
+  }
+
+  private setInjectionGain(value: number): void {
+    if (this.injectionGainNode && this.audioContext) {
+      const t = this.audioContext.currentTime;
+      this.injectionGainNode.gain.cancelScheduledValues(t);
+      this.injectionGainNode.gain.setValueAtTime(this.injectionGainNode.gain.value, t);
+      this.injectionGainNode.gain.linearRampToValueAtTime(value, t + 0.01);
+    }
+  }
+
+  private cleanupAudioElement(): void {
+    if (this.audioElement) {
+      this.audioElement.onended = null;
+      this.audioElement.onerror = null;
+      try {
+        this.audioElement.pause();
+        this.audioElement.src = '';
+        this.audioElement.load();
+      } catch { /* ignore */ }
+      this.audioElement = null;
+    }
+    if (this.mediaSource) {
+      try { this.mediaSource.disconnect(); } catch { /* already disconnected */ }
+      this.mediaSource = null;
+    }
+  }
+
   private startProgressTracking(): void {
-    if (this.progressInterval) {
-      clearInterval(this.progressInterval);
-    }
-
+    this.stopProgressTracking();
     this.progressInterval = setInterval(() => {
-      if (this.playbackState.isPlaying && this.playbackState.currentFile && this.audioElement) {
-        // Use HTML5 Audio currentTime (simple and accurate)
-        const currentTime = this.audioElement.currentTime;
-        const duration = this.playbackState.currentFile.duration;
-        
-        this.playbackState.progress = Math.min(currentTime, duration);
-        
-        this.onProgressUpdate?.(this.playbackState.progress, duration);
-        
-        // Auto-stop if duration exceeded (safety check)
-        if (currentTime >= duration) {
-          this.handlePlaybackComplete();
-        }
-      }
-    }, 100); // Update every 100ms
+      if (!this.playbackState.isPlaying || !this.audioElement || !this.playbackState.currentFile) return;
+      const current = this.audioElement.currentTime;
+      const duration = this.playbackState.currentFile.duration;
+      this.playbackState.progress = Math.min(current, duration);
+      this.onProgressUpdate?.(this.playbackState.progress, duration);
+      // Safety: if HTML5 audio hasn't fired onended for some reason
+      if (current >= duration) this.handlePlaybackComplete();
+    }, 100);
   }
 
-  /**
-   * Stop progress tracking
-   */
   private stopProgressTracking(): void {
     if (this.progressInterval) {
       clearInterval(this.progressInterval);
@@ -485,124 +353,38 @@ class AudioInjectionSystem {
     }
   }
 
-  /**
-   * Handle playback errors
-   */
-  private handlePlaybackError(error: Error): void {
-    console.error('❌ Audio playback error:', error);
-    this.stopPlayback();
-    // Could notify parent component about the error
-  }
-
-  /**
-   * Handle playback completion
-   * Requirements: 3.4 - Automatic microphone restoration when finished
-   */
   private handlePlaybackComplete(): void {
     this.stopProgressTracking();
-    this.unmuteMicrophone();
-    
+    this.cleanupAudioElement();
+
+    // Restore mic, silence injection
+    this.setMicGain(1);
+    this.setInjectionGain(0);
+    this.onMicrophoneMuted?.(false);
+
     this.playbackState = {
       isPlaying: false,
       isPaused: false,
       currentFile: null,
       progress: 0,
-      startTime: 0,
       pausedAt: 0,
-      playbackSpeed: 1.0
     };
 
     this.onPlaybackComplete?.();
-    console.log('✅ Audio playback completed');
+    console.log('✅ Injection playback complete — mic restored');
   }
 
-  /**
-   * Get current playback state
-   * Requirements: 3.7 - Visual indicator showing which audio file is playing
-   */
-  isPlaying(): boolean {
-    return this.playbackState.isPlaying;
-  }
-
-  isPaused(): boolean {
-    return this.playbackState.isPaused;
-  }
-
-  getCurrentFile(): InjectionAudioFile | null {
-    return this.playbackState.currentFile;
-  }
-
-  getProgress(): number {
-    return this.playbackState.progress;
-  }
-
-  getPlaybackSpeed(): number {
-    return this.playbackState.playbackSpeed;
-  }
-
-  /**
-   * Get mixed audio stream for broadcast
-   */
-  getMixedStream(): MediaStream | null {
-    return this.destinationNode?.stream || null;
-  }
-
-  /**
-   * Set audio file volume
-   */
-  setVolume(volume: number): void {
-    if (this.gainNode) {
-      this.gainNode.gain.value = Math.max(0, Math.min(1, volume));
-    }
-  }
-
-  /**
-   * Set microphone volume in the mix
-   */
-  setMicrophoneVolume(volume: number): void {
-    if (this.microphoneGainNode) {
-      this.microphoneGainNode.gain.value = Math.max(0, Math.min(1, volume));
-    }
-  }
-
-  /**
-   * Cleanup resources (with proper Web Audio cleanup)
-   */
   cleanup(): void {
     this.stopPlayback();
-    
-    // Clean up HTML5 Audio
-    if (this.audioElement) {
-      this.audioElement.pause();
-      this.audioElement.src = '';
-      this.audioElement = null;
-    }
-    
-    // Clean up Web Audio source
-    if (this.mediaSource) {
-      try {
-        this.mediaSource.disconnect();
-      } catch (error) {
-        // Already disconnected
-      }
-      this.mediaSource = null;
-    }
-    
-    // Clean up Web Audio context
-    if (this.audioContext && this.audioContext.state !== 'closed') {
-      this.audioContext.close();
-    }
-    
+    // Restore gains before releasing references
+    this.setMicGain(1);
+    this.setInjectionGain(0);
     this.audioContext = null;
-    this.microphoneGainNode = null;
-    this.gainNode = null;
-    this.mixerNode = null;
-    this.destinationNode = null;
-    this.microphoneStream = null;
-    
-    console.log('🧹 AudioInjectionSystem cleaned up (with broadcast mixing)');
+    this.broadcastDestination = null;
+    this.micGainNode = null;
+    this.injectionGainNode = null;
+    console.log('🧹 AudioInjectionSystem cleaned up');
   }
 }
 
 export default AudioInjectionSystem;
-export type { InjectionAudioFile, PlaybackState };

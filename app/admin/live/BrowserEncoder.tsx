@@ -89,17 +89,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       audioInjectionSystemRef.current = null;
     }
 
-    // Clean up mixed stream resources
-    if (mixedStreamProcessorRef.current) {
-      mixedStreamProcessorRef.current.disconnect();
-      mixedStreamProcessorRef.current = null;
-    }
-
-    if (mixedStreamSourceRef.current) {
-      mixedStreamSourceRef.current.disconnect();
-      mixedStreamSourceRef.current = null;
-    }
-    
     if (performanceMonitorRef.current) {
       performanceMonitorRef.current.stopMonitoring();
       performanceMonitorRef.current = null;
@@ -115,6 +104,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
+    }
+
+    // Clear keepalive ping
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
     }
     
     // Reset notification flags
@@ -374,8 +369,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   // Enhanced audio system refs
   const audioMonitorManagerRef = useRef<AudioMonitorManager | null>(null);
   const audioInjectionSystemRef = useRef<AudioInjectionSystem | null>(null);
-  const mixedStreamProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const mixedStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check browser support and existing session on mount
   useEffect(() => {
@@ -508,6 +502,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       (wsRef.current as any).responseTimeout = null;
     }
 
+    // Clear keepalive ping interval
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+
     // Close WebSocket
     if (wsRef.current) {
       wsRef.current.close();
@@ -523,17 +523,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     if (audioInjectionSystemRef.current) {
       audioInjectionSystemRef.current.cleanup();
       audioInjectionSystemRef.current = null;
-    }
-
-    // Clean up mixed stream resources
-    if (mixedStreamProcessorRef.current) {
-      mixedStreamProcessorRef.current.disconnect();
-      mixedStreamProcessorRef.current = null;
-    }
-
-    if (mixedStreamSourceRef.current) {
-      mixedStreamSourceRef.current.disconnect();
-      mixedStreamSourceRef.current = null;
     }
 
     // Stop media stream
@@ -971,131 +960,40 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         
         await audioMonitorManagerRef.current.initialize(stream);
         
-        // Initialize AudioInjectionSystem
+        // Initialize AudioInjectionSystem — shares the existing AudioContext.
+        // No second context, no cross-context MediaStream bridge, no polling interval.
         audioInjectionSystemRef.current = new AudioInjectionSystem(
           (progress: number, duration: number) => {
-            // Update progress in UI
             setPlaybackProgress(progress);
             setPlaybackDuration(duration);
-            console.log(`🎵 Audio progress update: ${progress.toFixed(1)}s / ${duration.toFixed(1)}s`);
           },
           () => {
-            // Handle playback completion
+            // Playback completed naturally
             setAudioInjectionActive(false);
             setCurrentAudioFile(null);
             setPlaybackProgress(0);
             setPlaybackDuration(0);
-            console.log('✅ Audio playback completed');
+            setIsAudioPaused(false);
+            console.log('✅ Audio injection complete');
           },
           (muted: boolean) => {
-            // Handle microphone mute state
-            console.log(`🎤 Microphone ${muted ? 'muted' : 'unmuted'} for audio injection`);
+            console.log(`🎤 Mic ${muted ? 'muted' : 'unmuted'} for injection`);
           }
         );
-        
-        await audioInjectionSystemRef.current.initialize(stream);
 
-        console.log('✅ Enhanced audio systems initialized');
-        
-        // CRITICAL FIX: Set up dynamic audio source switching for low-latency injection
-        // When audio injection is active, we need to switch from microphone to mixed stream
-        const setupDynamicAudioSwitching = () => {
-          console.log('🔧 Setting up dynamic audio source switching for low-latency injection...');
-          
-          // Store references for proper cleanup
-          const originalProcessor = processorRef.current;
-          const originalSource = sourceRef.current;
-          let currentMixedSource: MediaStreamAudioSourceNode | null = null;
-          let isUsingMixedStream = false;
-          
-          // Function to switch to mixed stream (for audio injection)
-          const switchToMixedStream = () => {
-            const mixedStream = audioInjectionSystemRef.current?.getMixedStream();
-            if (!mixedStream || !audioContextRef.current || !originalProcessor) {
-              console.warn('⚠️ Mixed stream or processor not available for switching');
-              return false;
-            }
-            
-            try {
-              // Disconnect original microphone source
-              if (originalSource && originalProcessor) {
-                originalSource.disconnect(originalProcessor);
-              }
-              
-              // Disconnect any existing mixed source
-              if (currentMixedSource) {
-                currentMixedSource.disconnect();
-                currentMixedSource = null;
-              }
-              
-              // Create new source from mixed stream (microphone + injected audio)
-              currentMixedSource = audioContextRef.current.createMediaStreamSource(mixedStream);
-              
-              // Connect mixed source to the same processor (sends to gateway)
-              currentMixedSource.connect(originalProcessor);
-              
-              isUsingMixedStream = true;
-              console.log('✅ Switched to mixed stream for broadcast - listeners will hear injected audio');
-              return true;
-            } catch (error) {
-              console.error('❌ Failed to switch to mixed stream:', error);
-              return false;
-            }
-          };
-          
-          // Function to switch back to microphone only
-          const switchToMicrophone = () => {
-            if (!originalSource || !originalProcessor) {
-              console.warn('⚠️ Original source not available for restoration');
-              return;
-            }
-            
-            try {
-              // Disconnect mixed source if active
-              if (currentMixedSource) {
-                currentMixedSource.disconnect();
-                currentMixedSource = null;
-              }
-              
-              // Reconnect original microphone source
-              originalSource.connect(originalProcessor);
-              
-              isUsingMixedStream = false;
-              console.log('✅ Switched back to microphone for broadcast - normal microphone audio');
-            } catch (error) {
-              console.error('❌ Failed to switch back to microphone:', error);
-            }
-          };
-          
-          // Monitor audio injection state and switch sources accordingly (low latency)
-          let wasPlaying = false;
-          const checkAudioInjectionState = () => {
-            const isPlaying = audioInjectionSystemRef.current?.isPlaying() || false;
-            
-            if (isPlaying && !wasPlaying) {
-              // Audio injection started - switch to mixed stream immediately
-              console.log('🎵 Audio injection started - switching to mixed stream for listeners');
-              switchToMixedStream();
-            } else if (!isPlaying && wasPlaying) {
-              // Audio injection stopped - switch back to microphone immediately
-              console.log('🎤 Audio injection stopped - switching back to microphone');
-              switchToMicrophone();
-            }
-            
-            wasPlaying = isPlaying;
-          };
-          
-          // Check state every 50ms for very responsive switching (reduce latency)
-          const switchingInterval = setInterval(checkAudioInjectionState, 50);
-          
-          // Store interval reference for cleanup
-          if (!mixedStreamProcessorRef.current) {
-            mixedStreamProcessorRef.current = { disconnect: () => clearInterval(switchingInterval) } as any;
-          }
-        };
-        
-        // Set up dynamic switching after a short delay
-        setTimeout(setupDynamicAudioSwitching, 500);
+        // Wire injection system directly into the SAME audio graph.
+        // micSource ──► micGain ──┐
+        //                        ├──► processor (onaudioprocess → gateway)
+        // audioEl  ──► injGain  ──┘
+        //
+        // Gain values control what listeners hear — no node reconnection needed.
+        audioInjectionSystemRef.current.initializeWithContext(
+          audioContext,   // shared context — no suspension risk
+          source,         // mic MediaStreamAudioSourceNode already created above
+          processor       // the ScriptProcessorNode that sends PCM to the gateway
+        );
+
+        console.log('✅ AudioInjectionSystem wired into main audio graph');
         
       } catch (error) {
         console.error('⚠️ Failed to initialize enhanced audio systems:', error);
@@ -1316,6 +1214,15 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       const ws = await Promise.race([wsPromise, wsTimeout]) as WebSocket;
       wsRef.current = ws;
       console.log('✅ WebSocket connected');
+
+      // Keepalive ping every 30s — prevents proxy/load-balancer idle timeouts
+      // and lets us detect dropped connections before audio stops flowing.
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = setInterval(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 30000);
       console.log('🔌 WebSocket readyState:', ws.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
       console.log('🔌 WebSocket URL:', ws.url);
       
