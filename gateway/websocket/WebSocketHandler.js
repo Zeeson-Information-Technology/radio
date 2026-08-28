@@ -395,12 +395,21 @@ class WebSocketHandler {
 
     const currentBroadcast = this.broadcastService.getCurrentBroadcast();
     if (currentBroadcast && currentBroadcast.user.userId === user.userId) {
-      // Stop the broadcast when admin disconnects (simplified behavior)
-      console.log(`🛑 Stopping broadcast for ${user.email} due to disconnection`);
-      
-      await this.broadcastService.stopStreaming(null, user);
-      
-      console.log(`📡 Broadcast stopped for ${user.email} - they can start a new session when they return`);
+      console.log(`⏳ Admin disconnected — waiting 30s for reconnect before stopping broadcast`);
+
+      // Mark disconnection time
+      currentBroadcast.disconnectedAt = Date.now();
+
+      // Grace period: give the admin 30 seconds to reconnect (page refresh, network blip)
+      // If they reconnect, processAuthenticatedConnection clears this timeout.
+      currentBroadcast.cleanupTimeout = setTimeout(async () => {
+        // Only stop if they haven't reconnected
+        const broadcast = this.broadcastService.getCurrentBroadcast();
+        if (broadcast && broadcast.user.userId === user.userId && broadcast.disconnectedAt) {
+          console.log(`🛑 Grace period expired — stopping broadcast for ${user.email}`);
+          await this.broadcastService.stopStreaming(null, user);
+        }
+      }, 30000); // 30 second grace period
     }
   }
 

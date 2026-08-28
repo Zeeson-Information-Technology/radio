@@ -53,6 +53,15 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [retryCount, setRetryCount] = useState(0);
   const [isFirstAttempt, setIsFirstAttempt] = useState(true);
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(false);
+  const [autoStopOnComplete, setAutoStopOnComplete] = useState(false);
+  const autoStopOnCompleteRef = useRef(false);
+  useEffect(() => { autoStopOnCompleteRef.current = autoStopOnComplete; }, [autoStopOnComplete]);
+
+  // Post-audio countdown modal state
+  const [showContinueModal, setShowContinueModal] = useState(false);
+  const [continueCountdown, setContinueCountdown] = useState(15);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownAutoStopRef = useRef<NodeJS.Timeout | null>(null);
   
 
   
@@ -127,6 +136,59 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       console.log(`🎙️ Noise suppression ${next ? 'enabled' : 'disabled'}`);
     }
   }, [noiseSuppressionEnabled]);
+
+  // Clear any running countdown timers
+  const clearCountdownTimers = useCallback(() => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (countdownAutoStopRef.current) {
+      clearTimeout(countdownAutoStopRef.current);
+      countdownAutoStopRef.current = null;
+    }
+  }, []);
+
+  // Show the "Continue broadcasting?" modal with a 15s countdown
+  const startContinueCountdown = useCallback(() => {
+    setContinueCountdown(15);
+    setShowContinueModal(true);
+
+    // Tick the countdown every second
+    countdownIntervalRef.current = setInterval(() => {
+      setContinueCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownIntervalRef.current!);
+          countdownIntervalRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Auto-stop after 15 seconds if presenter doesn't respond
+    countdownAutoStopRef.current = setTimeout(() => {
+      setShowContinueModal(false);
+      clearInterval(countdownIntervalRef.current!);
+      countdownIntervalRef.current = null;
+      console.log('🛑 No response — auto-stopping broadcast after audio completion');
+      stopBroadcast();
+    }, 15000);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Presenter clicked "Continue" — dismiss modal, keep broadcasting
+  const handleContinueBroadcast = useCallback(() => {
+    clearCountdownTimers();
+    setShowContinueModal(false);
+    console.log('▶️ Presenter chose to continue broadcasting');
+  }, [clearCountdownTimers]);
+
+  // Presenter clicked "Stop Now" — dismiss modal, stop immediately
+  const handleStopFromModal = useCallback(() => {
+    clearCountdownTimers();
+    setShowContinueModal(false);
+    stopBroadcast();
+  }, [clearCountdownTimers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Broadcast control handlers
   const handleMuteToggle = useCallback(async () => {
@@ -505,6 +567,22 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     };
   }, []);
 
+  // Warn admin before closing tab/window if broadcast or audio injection is active
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (connectionState === 'streaming') {
+        const msg = audioInjectionActive
+          ? 'Audio is currently playing to listeners. Closing this tab will stop the broadcast immediately.'
+          : 'You are live on air. Closing this tab will stop the broadcast immediately.';
+        e.preventDefault();
+        e.returnValue = msg; // Required for Chrome
+        return msg;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [connectionState, audioInjectionActive]);
+
   const cleanup = useCallback(() => {
     // Stop duration timer
     if (durationIntervalRef.current) {
@@ -523,6 +601,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       clearInterval(pingIntervalRef.current);
       pingIntervalRef.current = null;
     }
+
+    // Clear post-audio countdown if running
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (countdownAutoStopRef.current) {
+      clearTimeout(countdownAutoStopRef.current);
+      countdownAutoStopRef.current = null;
+    }
+    setShowContinueModal(false);
 
     // Close WebSocket
     if (wsRef.current) {
@@ -1086,13 +1175,15 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             setPlaybackDuration(duration);
           },
           () => {
-            // Playback completed naturally
+            // Playback completed naturally — update UI state
             setAudioInjectionActive(false);
             setCurrentAudioFile(null);
             setPlaybackProgress(0);
             setPlaybackDuration(0);
             setIsAudioPaused(false);
             console.log('✅ Audio injection complete');
+            // Show "Continue broadcasting?" countdown — auto-stops if no response
+            startContinueCountdown();
           },
           (muted: boolean) => {
             console.log(`🎤 Mic ${muted ? 'muted' : 'unmuted'} for injection`);
@@ -1864,6 +1955,63 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           startBroadcast();
         }}
       />
+    )}
+
+    {/* ── Post-Audio "Continue Broadcasting?" Modal ───────────────────────── */}
+    {showContinueModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+        {/* Modal */}
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+          {/* Countdown ring */}
+          <div className="relative w-20 h-20 mx-auto mb-4">
+            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="6" />
+              <circle
+                cx="40" cy="40" r="34" fill="none"
+                stroke={continueCountdown <= 5 ? '#ef4444' : '#f59e0b'}
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 34}`}
+                strokeDashoffset={`${2 * Math.PI * 34 * (1 - continueCountdown / 15)}`}
+                className="transition-all duration-1000 ease-linear"
+              />
+            </svg>
+            <span className={`absolute inset-0 flex items-center justify-center text-2xl font-bold ${
+              continueCountdown <= 5 ? 'text-red-500' : 'text-amber-500'
+            }`}>
+              {continueCountdown}
+            </span>
+          </div>
+
+          <h2 className="text-xl font-bold text-slate-800 mb-2">Audio finished</h2>
+          <p className="text-slate-500 text-sm mb-6">
+            Continue broadcasting, or the stream will stop automatically.
+          </p>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleStopFromModal}
+              className="flex-1 px-4 py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition-colors text-sm"
+            >
+              Stop Now
+            </button>
+            <button
+              onClick={handleContinueBroadcast}
+              className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors text-sm"
+              autoFocus
+            >
+              Continue
+            </button>
+          </div>
+
+          <p className="text-xs text-slate-400 mt-3">
+            Stream stops in {continueCountdown}s if no response
+          </p>
+        </div>
+      </div>
     )}
 
     {/* Broadcast Error Handler */}
