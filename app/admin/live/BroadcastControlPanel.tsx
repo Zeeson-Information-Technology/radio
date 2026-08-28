@@ -45,6 +45,8 @@ interface BroadcastControlPanelProps {
   onAudioResume?: () => void;
   onAudioSeek?: (time: number) => void;
   onAudioSkip?: (seconds: number) => void;
+  /** Called when presenter clicks Inject Live while not yet broadcasting — starts broadcast then injects */
+  onInjectAndStart?: (fileId: string, fileName: string, duration: number) => void;
 }
 
 export default function BroadcastControlPanel({
@@ -65,7 +67,8 @@ export default function BroadcastControlPanel({
   onAudioPause,
   onAudioResume,
   onAudioSeek,
-  onAudioSkip
+  onAudioSkip,
+  onInjectAndStart,
 }: BroadcastControlPanelProps) {
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -158,20 +161,22 @@ export default function BroadcastControlPanel({
     }
   }, [isMuted]);
 
-  // Performance optimization: Memoized audio file selection handler with preparation mode
+  // Memoized audio file selection handler
   const handleAudioFileSelect = useCallback(async (file: AudioFile) => {
     if (isStreaming) {
-      // Live Mode: Inject audio into broadcast stream immediately
+      // Already live — inject immediately (or stop current if one is playing)
       if (audioInjectionActive) {
         onAudioStop();
       } else {
         onAudioFilePlay(file.id, file.title, file.duration);
       }
     } else {
-      // Not Live: Just preview the audio locally
-      handleLocalPreview(file);
+      // Not live yet — start broadcast then auto-inject once streaming
+      if (onInjectAndStart) {
+        onInjectAndStart(file.id, file.title, file.duration);
+      }
     }
-  }, [isStreaming, audioInjectionActive, onAudioStop, onAudioFilePlay, showSuccess]);
+  }, [isStreaming, audioInjectionActive, onAudioStop, onAudioFilePlay, onInjectAndStart]);
 
   // Enhanced local preview functionality with full audio player
   const handleLocalPreview = useCallback(async (file: AudioFile) => {
@@ -610,20 +615,6 @@ export default function BroadcastControlPanel({
           </div>
 
           {/* Browse mode notice when not streaming */}
-          {!isStreaming && (
-            <div className="mb-3 lg:mb-4 p-3 lg:p-4 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-lg">
-              <div className="flex items-start gap-2 lg:gap-3 text-blue-800">
-                <span className="text-lg lg:text-2xl flex-shrink-0">📡</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm lg:text-base">Audio Library - Browse Mode</p>
-                  <p className="text-xs lg:text-sm text-blue-700 mt-1">
-                    Browse and preview audio files. Start broadcasting above to play audio live on air.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Audio Preview Player */}
           {previewState.fileId && previewState.data && (
             <div className="mb-3 lg:mb-4 p-3 lg:p-4 bg-gradient-to-r from-purple-50 to-purple-100 border border-purple-200 rounded-lg">
@@ -683,14 +674,11 @@ export default function BroadcastControlPanel({
                         <span className="text-xs lg:text-sm">{getTypeIcon(file.type || 'lecture')}</span>
                         <span className="text-xs text-slate-500 capitalize">{file.type || 'lecture'}</span>
                       </div>
-                      <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                        {formatDuration(file.duration)}
-                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                    {/* Edit button - only for admin or file owner */}
-                    {(admin.role === 'super_admin' || admin.role === 'admin' || file.isOwner) && (
+                    {/* Edit button - admin/super_admin only in live panel */}
+                    {(admin.role === 'super_admin' || admin.role === 'admin') && (
                       <button
                         onClick={() => handleEditAudio(file)}
                         className="px-2 py-1 lg:px-3 lg:py-2 text-xs lg:text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
@@ -700,8 +688,8 @@ export default function BroadcastControlPanel({
                       </button>
                     )}
 
-                    {/* Delete button - only for admin or file owner */}
-                    {(admin.role === 'super_admin' || admin.role === 'admin' || file.isOwner) && (
+                    {/* Delete button - admin/super_admin only in live panel */}
+                    {(admin.role === 'super_admin' || admin.role === 'admin') && (
                       <button
                         onClick={async () => {
                           const shouldDelete = await confirm({
@@ -737,44 +725,27 @@ export default function BroadcastControlPanel({
                       </button>
                     )}
                     
-                    {/* Simple Play/Pause button - streamlined interface */}
-                    {isStreaming ? (
-                      <button
-                        onClick={() => handleAudioFileSelect(file)}
-                        disabled={audioInjectionActive && currentAudioFile === file.title}
-                        className={`px-3 py-2 lg:px-4 lg:py-2 rounded-lg font-medium transition-all text-xs lg:text-sm ${
-                          audioInjectionActive && currentAudioFile === file.title
-                            ? 'bg-red-100 text-red-700 cursor-not-allowed'
-                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                        }`}
-                      >
-                        {audioInjectionActive && currentAudioFile === file.title ? (
-                          <>⏸️ <span className="hidden sm:inline">Playing</span></>
-                        ) : (
-                          <>▶️ <span className="hidden sm:inline">Play</span><span className="sm:hidden">Play</span></>
-                        )}
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        {previewState.fileId === file.id ? (
-                          <button
-                            onClick={handleStopPreview}
-                            className="px-3 py-2 lg:px-4 lg:py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs lg:text-sm"
-                            title="Close preview player"
-                          >
-                            ⏸️ <span className="hidden sm:inline">Stop</span><span className="sm:hidden">Stop</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleLocalPreview(file)}
-                            className="px-3 py-2 lg:px-4 lg:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs lg:text-sm"
-                            title="Preview this audio file"
-                          >
-                            ▶️ <span className="hidden sm:inline">Play</span><span className="sm:hidden">Play</span>
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {/* Inject Live button — always visible. When not streaming, starts broadcast first. */}
+                    <button
+                      onClick={() => handleAudioFileSelect(file)}
+                      disabled={audioInjectionActive && currentAudioFile === file.title}
+                      className={`px-3 py-2 lg:px-4 lg:py-2 rounded-lg font-medium transition-all text-xs lg:text-sm ${
+                        audioInjectionActive && currentAudioFile === file.title
+                          ? 'bg-red-100 text-red-700 cursor-not-allowed'
+                          : isStreaming
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                      title={isStreaming ? 'Inject into live broadcast' : 'Start broadcasting and inject this audio'}
+                    >
+                      {audioInjectionActive && currentAudioFile === file.title ? (
+                        <>⏸️ <span className="hidden sm:inline">Playing</span></>
+                      ) : isStreaming ? (
+                        <>▶️ <span className="hidden sm:inline">Inject Live</span><span className="sm:hidden">Live</span></>
+                      ) : (
+                        <>🎙️ <span className="hidden sm:inline">Go Live + Play</span><span className="sm:hidden">Go Live</span></>
+                      )}
+                    </button>
                   </div>
                 </div>
               ))}

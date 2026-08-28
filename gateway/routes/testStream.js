@@ -156,6 +156,13 @@ router.get('/test-stream/status', (req, res) => {
   });
 });
 
+/**
+ * GET /listeners/count — real-time listener count for local dev
+ */
+router.get('/listeners/count', (req, res) => {
+  res.json({ ok: true, listeners: activeStreams.size });
+});
+
 router.setLiveAudioData = setLiveAudioData;
 router.stopLiveAudioStream = stopLiveAudioStream;
 router.setBroadcastLive = setBroadcastLive;
