@@ -9,6 +9,7 @@ import AudioUploadBatch from "./AudioUploadBatch";
 import AudioList from "./AudioList";
 import AudioLibraryManager from "./AudioLibraryManager";
 import LecturersManager from "../lecturers/LecturersManager";
+import CategoriesView from "./CategoriesView";
 
 interface AudioLibraryPanelProps {
   admin: SerializedAdmin;
@@ -242,15 +243,7 @@ export default function AudioLibraryPanel({ admin }: AudioLibraryPanelProps) {
 
             {activeTab === "categories" && (
               <div>
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Manage Categories</h2>
-                  <p className="text-slate-600">
-                    Organize your audio content with categories like Quran, Hadith, Tafsir, and Lectures.
-                  </p>
-                </div>
-                <div className="text-center py-12 text-slate-500">
-                  <p className="text-lg">Coming soon...</p>
-                </div>
+                <CategoriesView admin={admin} />
               </div>
             )}
           </div>
