@@ -64,6 +64,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
     playing: () => void;
     waiting: () => void;
     stalled: () => void;
+    error: (e: Event) => void;
   } | null>(null);
 
   // Smart automatic updates - checks every 10 seconds when page is visible
@@ -269,6 +270,13 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
     return () => {
       // Cleanup audio element
       if (audioRef.current) {
+        if (audioEventHandlersRef.current) {
+          audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
+          audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
+          audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
+          audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
+          audioEventHandlersRef.current = null;
+        }
         audioRef.current.pause();
         audioRef.current.src = '';
         audioRef.current.load();
@@ -284,16 +292,19 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
       if (isPlaying) {
         // Stop playing — fully reset the element so the next play
         // reconnects fresh to the live edge instead of resuming from a stale buffer
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current.load(); // flushes internal buffer, prevents stale-buffer stalling on re-play
-        // Remove buffering event listeners to prevent accumulation
+        // Remove ALL listeners first — including error — before clearing src.
+        // Clearing src triggers a spurious error event; removing the listener
+        // before that prevents it firing at all.
         if (audioEventHandlersRef.current) {
           audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
           audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
           audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
+          audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
           audioEventHandlersRef.current = null;
         }
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current.load();
         setIsPlaying(false);
         setIsBuffering(false);
         console.log('🔇 Audio stopped');
@@ -338,24 +349,19 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         const handleWaiting = () => setIsBuffering(true);
         const handleStalled = () => setIsBuffering(true);
 
-        // Store refs so stop can remove them and prevent accumulation across play/stop cycles
-        audioEventHandlersRef.current = { playing: handlePlaying, waiting: handleWaiting, stalled: handleStalled };
-
-        audioRef.current.addEventListener('playing', handlePlaying);
-        audioRef.current.addEventListener('waiting', handleWaiting);
-        audioRef.current.addEventListener('stalled', handleStalled);
-
         // Error handler — fires if the stream can't be decoded or connection fails
         const handleError = (error: Event) => {
           console.error('❌ Audio error event:', error);
           setIsPlaying(false);
           setIsBuffering(false);
-          audioRef.current.removeEventListener('error', handleError);
-          audioRef.current.removeEventListener('playing', handlePlaying);
-          audioRef.current.removeEventListener('waiting', handleWaiting);
-          audioRef.current.removeEventListener('stalled', handleStalled);
+          if (audioEventHandlersRef.current && audioRef.current) {
+            audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
+            audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
+            audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
+            audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
+          }
           audioEventHandlersRef.current = null;
-          
+
           const audioError = (error.target as HTMLAudioElement)?.error;
           if (audioError) {
             switch (audioError.code) {
@@ -366,9 +372,6 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 showError('Audio Format Error', 'There was a problem with the audio format. Please try refreshing the page.');
                 break;
               case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                // Only show error if the broadcast has actually ended.
-                // If isLive is still true, the stream is temporarily unreachable
-                // (e.g. listener stopped and replayed too quickly) — no popup needed.
                 if (!liveData.isLive) {
                   showError('Stream Unavailable', 'The audio stream is currently unavailable. The broadcast may have ended or there may be a technical issue.');
                 }
@@ -378,8 +381,14 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
             }
           }
         };
-        
-        audioRef.current.addEventListener('error', handleError, { once: true });
+
+        // Store ALL handlers together so stop can remove them all before clearing src
+        audioEventHandlersRef.current = { playing: handlePlaying, waiting: handleWaiting, stalled: handleStalled, error: handleError };
+
+        audioRef.current.addEventListener('playing', handlePlaying);
+        audioRef.current.addEventListener('waiting', handleWaiting);
+        audioRef.current.addEventListener('stalled', handleStalled);
+        audioRef.current.addEventListener('error', handleError);
         
         await audioRef.current.play();
         setIsPlaying(true);

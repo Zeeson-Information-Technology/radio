@@ -82,7 +82,7 @@ class AudioInjectionSystem {
    */
   initializeWithContext(
     ctx: AudioContext,
-    micSource: MediaStreamAudioSourceNode,
+    micSource: AudioNode,
     destination: AudioNode
   ): void {
     this.audioContext = ctx;
@@ -338,11 +338,14 @@ class AudioInjectionSystem {
     this.progressInterval = setInterval(() => {
       if (!this.playbackState.isPlaying || !this.audioElement || !this.playbackState.currentFile) return;
       const current = this.audioElement.currentTime;
-      const duration = this.playbackState.currentFile.duration;
-      this.playbackState.progress = Math.min(current, duration);
-      this.onProgressUpdate?.(this.playbackState.progress, duration);
-      // Safety: if HTML5 audio hasn't fired onended for some reason
-      if (current >= duration) this.handlePlaybackComplete();
+      // Use the actual loaded duration from the audio element — more accurate
+      // than DB metadata (which may be rounded or incorrect).
+      const actualDuration = isFinite(this.audioElement.duration) && this.audioElement.duration > 0
+        ? this.audioElement.duration
+        : this.playbackState.currentFile.duration;
+      this.playbackState.progress = current;
+      this.onProgressUpdate?.(current, actualDuration);
+      // Do NOT stop based on duration — trust audioElement.onended only.
     }, 100);
   }
 

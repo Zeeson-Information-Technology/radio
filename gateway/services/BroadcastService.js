@@ -163,31 +163,26 @@ class BroadcastService {
       console.log('🧪 Local testing mode: outputting to stdout for live streaming');
       
       ffmpegArgs = [
-        // Input: Raw PCM from browser
+        // Input: Raw PCM from browser (exact format the ScriptProcessor sends)
         '-f', 's16le',
         '-ar', audioConfig.sampleRate.toString(),
         '-ac', audioConfig.channels.toString(),
         '-i', 'pipe:0',
         
-        // LOW LATENCY OPTIMIZATION: Minimize all buffering and delays
-        '-flush_packets', '1',                    // Flush packets immediately
-        '-fflags', '+genpts+igndts+flush_packets', // Enhanced flags for low latency
-        '-avoid_negative_ts', 'make_zero',        // Handle timestamp issues
-        '-max_delay', '0',                        // Minimize muxing delay
-        '-muxdelay', '0',                         // No mux delay
-        '-muxpreload', '0',                       // No preload buffer
-        '-thread_queue_size', '1',                // Minimal thread queue
-        '-probesize', '32',                       // Minimal probe size
-        '-analyzeduration', '0',                  // No analysis delay
+        // Stable streaming flags — avoid zero-delay settings that cause
+        // timestamp drift and FFmpeg stdin stalls after ~3 minutes of audio.
+        '-fflags', '+genpts',                     // Generate PTS from input timestamps
+        '-avoid_negative_ts', 'make_zero',        // Keep timestamps non-negative
+        '-thread_queue_size', '512',              // Enough queue for audio bursts during injection
         
-        // Audio encoding for optimal voice quality with low latency
+        // Audio encoding
         '-acodec', 'libmp3lame',
         '-b:a', '128k',
         '-ar', '44100',
         '-ac', '1',
         '-f', 'mp3',
-        // Simplified voice optimization filters (fixed syntax)
-        '-af', 'highpass=f=80,lowpass=f=8000,volume=1.2',
+        // Voice optimisation filter — no lowpass (injection audio needs full range)
+        '-af', 'highpass=f=80,volume=1.2',
         
         // Output to stdout for live streaming
         'pipe:1'
@@ -205,24 +200,18 @@ class BroadcastService {
         '-ac', audioConfig.channels.toString(),
         '-i', 'pipe:0',
         
-        // LOW LATENCY OPTIMIZATION: Minimize all buffering and delays
-        '-flush_packets', '1',                    // Flush packets immediately
-        '-fflags', '+genpts+igndts+flush_packets', // Enhanced flags for low latency
-        '-avoid_negative_ts', 'make_zero',        // Handle timestamp issues
-        '-max_delay', '0',                        // Minimize muxing delay
-        '-muxdelay', '0',                         // No mux delay
-        '-muxpreload', '0',                       // No preload buffer
-        '-thread_queue_size', '1',                // Minimal thread queue
-        '-probesize', '32',                       // Minimal probe size
-        '-analyzeduration', '0',                  // No analysis delay
+        // Stable streaming flags
+        '-fflags', '+genpts',
+        '-avoid_negative_ts', 'make_zero',
+        '-thread_queue_size', '512',
         
-        // Audio encoding for Icecast compatibility with voice optimization and low latency
+        // Audio encoding for Icecast compatibility
         '-acodec', 'libmp3lame',
         '-b:a', '128k',
         '-ar', '44100',
         '-ac', '1',
         '-f', 'mp3',
-        '-af', 'highpass=f=80,lowpass=f=8000,volume=1.2',
+        '-af', 'highpass=f=80,volume=1.2',
         
         // Icecast streaming parameters
         '-ice_name', 'Al-Manhaj Radio',

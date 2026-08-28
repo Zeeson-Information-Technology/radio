@@ -52,6 +52,7 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [playbackDuration, setPlaybackDuration] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
   const [isFirstAttempt, setIsFirstAttempt] = useState(true);
+  const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(false);
   
 
   
@@ -116,6 +117,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     hasNotifiedStartRef.current = false;
     hasNotifiedStopRef.current = false;
   }, []);
+
+  // Noise suppression toggle — sends enable/disable message to the AudioWorklet
+  const handleNoiseSuppressionToggle = useCallback(() => {
+    const next = !noiseSuppressionEnabled;
+    setNoiseSuppressionEnabled(next);
+    if (noiseWorkletRef.current) {
+      noiseWorkletRef.current.port.postMessage({ type: 'enable', value: next });
+      console.log(`🎙️ Noise suppression ${next ? 'enabled' : 'disabled'}`);
+    }
+  }, [noiseSuppressionEnabled]);
 
   // Broadcast control handlers
   const handleMuteToggle = useCallback(async () => {
@@ -370,6 +381,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const audioMonitorManagerRef = useRef<AudioMonitorManager | null>(null);
   const audioInjectionSystemRef = useRef<AudioInjectionSystem | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const keepAliveCleanupRef = useRef<(() => void) | null>(null);
+  const noiseWorkletRef = useRef<AudioWorkletNode | null>(null);
+  // File queued to inject as soon as broadcast reaches 'streaming' state
+  const pendingInjectRef = useRef<{ fileId: string; fileName: string; duration: number } | null>(null);
 
   // Check browser support and existing session on mount
   useEffect(() => {
@@ -525,6 +541,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       audioInjectionSystemRef.current = null;
     }
 
+    // Disconnect noise suppression worklet
+    if (noiseWorkletRef.current) {
+      try { noiseWorkletRef.current.disconnect(); } catch { /* ignore */ }
+      noiseWorkletRef.current = null;
+    }
+
     // Stop media stream
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
@@ -550,6 +572,18 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
+    }
+
+    // Remove keep-alive event listeners
+    if (keepAliveCleanupRef.current) {
+      keepAliveCleanupRef.current();
+      keepAliveCleanupRef.current = null;
+    }
+
+    // Clear keep-alive interval
+    if (keepAliveIntervalRef.current) {
+      clearInterval(keepAliveIntervalRef.current);
+      keepAliveIntervalRef.current = null;
     }
 
     setAudioLevel(0);
@@ -853,10 +887,40 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       // Configure gain node for silent processing (needed for ScriptProcessor to work)
       gainNode.gain.value = 0; // Silent - no audio output
 
-      // Connect audio graph
+      // ── RNNoise AudioWorklet (noise suppression) ─────────────────────────
+      // Loaded lazily so it doesn't block stream startup.
+      // Falls back gracefully if the worklet fails to load.
+      let noiseWorklet: AudioWorkletNode | null = null;
+      try {
+        await audioContext.audioWorklet.addModule('/worklets/noise-suppressor-worklet.js');
+        noiseWorklet = new AudioWorkletNode(audioContext, 'noise-suppressor', {
+          channelCount: 1,
+          channelCountMode: 'explicit',
+          channelInterpretation: 'discrete',
+        });
+        noiseWorkletRef.current = noiseWorklet;
+        noiseWorklet.port.postMessage({ type: 'enable', value: false }); // off by default
+        console.log('✅ RNNoise worklet loaded');
+      } catch (err) {
+        console.warn('⚠️ RNNoise worklet unavailable — continuing without noise suppression');
+        noiseWorklet = null;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      // Connect audio graph — analyser only here; mic → processor path is
+      // wired inside AudioInjectionSystem.initializeWithContext() below so
+      // gain-based muting works correctly. Connecting source → processor here
+      // AND inside initializeWithContext would send double mic audio to the gateway.
       source.connect(analyser);
-      source.connect(processor);
-      
+
+      // Noise worklet sits between source and injectionSystem's micGainNode.
+      // We connect it to a temporary variable so initializeWithContext can use it.
+      // If no worklet, micSource passed directly is the raw source.
+      const micSourceForInjection: AudioNode = noiseWorklet ?? source;
+      if (noiseWorklet) {
+        source.connect(noiseWorklet);
+      }
+
       // CRITICAL FIX: Connect processor to destination (required for onaudioprocess to fire)
       // The gain node is silent (0 volume) so no audio is actually output
       processor.connect(gainNode);
@@ -866,6 +930,60 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       if (isMonitoring) {
         source.connect(audioContext.destination);
       }
+
+      // ── AudioContext keep-alive ──────────────────────────────────────────
+      // Browsers (Chrome, Safari) auto-suspend an AudioContext after ~30s of
+      // apparent silence or when the tab goes to the background. When the
+      // context suspends, onaudioprocess stops firing → no PCM reaches the
+      // gateway → stream dies.
+      //
+      // Fix 1: Generate a silent (gain=0) oscillator every 20s. This counts
+      //        as "audio activity" and prevents auto-suspension.
+      // Fix 2: Resume the context on visibilitychange and pageshow (handles
+      //        iOS Safari tab-switch and Android Chrome background kill).
+      // ────────────────────────────────────────────────────────────────────
+      const scheduleKeepAlive = () => {
+        if (!audioContextRef.current || audioContextRef.current.state === 'closed') return;
+        try {
+          const osc = audioContextRef.current.createOscillator();
+          const silentGain = audioContextRef.current.createGain();
+          silentGain.gain.value = 0; // inaudible
+          osc.connect(silentGain);
+          silentGain.connect(audioContextRef.current.destination);
+          osc.start();
+          osc.stop(audioContextRef.current.currentTime + 0.001); // 1ms pulse
+        } catch { /* AudioContext may have been closed */ }
+      };
+
+      // Tick every 20 seconds
+      keepAliveIntervalRef.current = setInterval(scheduleKeepAlive, 20000);
+
+      // Resume AudioContext when tab becomes visible again
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && audioContextRef.current) {
+          if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().then(() => {
+              console.log('🔁 AudioContext resumed after tab visibility restored');
+            }).catch(() => {});
+          }
+        }
+      };
+
+      // pageshow fires on iOS Safari when navigating back to the tab
+      const handlePageShow = () => {
+        if (audioContextRef.current?.state === 'suspended') {
+          audioContextRef.current.resume().catch(() => {});
+        }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('pageshow', handlePageShow);
+
+      // Store cleanup in a dedicated ref — audioContextRef.current is assigned later
+      keepAliveCleanupRef.current = () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('pageshow', handlePageShow);
+      };
 
       console.log('✅ Audio graph connected. AudioContext state:', audioContext.state);
       console.log('🎤 Microphone stream active:', stream.active);
@@ -987,10 +1105,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         // audioEl  ──► injGain  ──┘
         //
         // Gain values control what listeners hear — no node reconnection needed.
+        // micSourceForInjection is either the noiseWorklet output or raw source.
         audioInjectionSystemRef.current.initializeWithContext(
-          audioContext,   // shared context — no suspension risk
-          source,         // mic MediaStreamAudioSourceNode already created above
-          processor       // the ScriptProcessorNode that sends PCM to the gateway
+          audioContext,
+          micSourceForInjection as MediaStreamAudioSourceNode,
+          processor
         );
 
         console.log('✅ AudioInjectionSystem wired into main audio graph');
@@ -1352,6 +1471,18 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     setConnectionState('disconnected');
   };
 
+  // Fire pending audio injection as soon as broadcast reaches streaming state
+  useEffect(() => {
+    if (connectionState === 'streaming' && pendingInjectRef.current) {
+      const { fileId, fileName, duration } = pendingInjectRef.current;
+      pendingInjectRef.current = null;
+      // Small delay to let the audio graph fully initialise
+      setTimeout(() => {
+        handleAudioFilePlay(fileId, fileName, duration);
+      }, 800);
+    }
+  }, [connectionState]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const forceStopBroadcast = async () => {
     try {
       console.log('🛑 Force stopping broadcast session...');
@@ -1643,6 +1774,69 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
     </div>
 
+    {/* ── Presenter Status Bar ─────────────────────────────────────────────── */}
+    {connectionState === 'streaming' && (
+      <div className="mt-4 rounded-xl border-2 overflow-hidden">
+        {/* State indicator */}
+        {audioInjectionActive && !isAudioPaused ? (
+          <div className="flex items-center gap-3 px-5 py-3 bg-blue-600 text-white">
+            <span className="relative flex h-3 w-3 flex-shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-white"></span>
+            </span>
+            <span className="font-bold text-sm tracking-wide">🎵 AUDIO PLAYING</span>
+            <span className="text-blue-200 text-xs ml-1 truncate">{currentAudioFile}</span>
+            <span className="ml-auto text-blue-200 text-xs">Mic muted — listeners hear recording</span>
+          </div>
+        ) : isAudioPaused ? (
+          <div className="flex items-center gap-3 px-5 py-3 bg-amber-500 text-white">
+            <span className="font-bold text-sm tracking-wide">⏸ AUDIO PAUSED</span>
+            <span className="text-amber-100 text-xs ml-1 truncate">{currentAudioFile}</span>
+            <span className="ml-auto text-amber-100 text-xs">🎤 Mic live — you can speak now</span>
+          </div>
+        ) : isMuted ? (
+          <div className="flex items-center gap-3 px-5 py-3 bg-stone-600 text-white">
+            <span className="font-bold text-sm tracking-wide">🔇 BROADCAST MUTED</span>
+            <span className="ml-auto text-stone-300 text-xs">Listeners hear silence</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 px-5 py-3 bg-emerald-600 text-white">
+            <span className="relative flex h-3 w-3 flex-shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-white"></span>
+            </span>
+            <span className="font-bold text-sm tracking-wide">🎤 MIC LIVE</span>
+            <span className="ml-auto text-emerald-100 text-xs">Listeners hear your voice</span>
+          </div>
+        )}
+
+        {/* Controls row */}
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-white/90 border-t border-gray-100">
+          {/* Noise suppression toggle */}
+          <button
+            onClick={handleNoiseSuppressionToggle}
+            disabled={!noiseWorkletRef.current}
+            title={noiseWorkletRef.current ? undefined : 'Noise suppression unavailable in this browser'}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              noiseSuppressionEnabled
+                ? 'bg-violet-600 text-white border-violet-600'
+                : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-600'
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+            </svg>
+            {noiseSuppressionEnabled ? '✓ Noise Cancel ON' : 'Noise Cancel'}
+          </button>
+
+          <div className="text-xs text-slate-400 ml-auto">
+            {noiseSuppressionEnabled ? 'RNNoise active' : noiseWorkletRef.current ? 'RNNoise ready' : 'RNNoise unavailable'}
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* Enhanced Broadcast Control Panel - Always shown for admins for audio library access */}
     {admin && (
       <BroadcastControlPanel
@@ -1664,6 +1858,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         onAudioResume={handleAudioResume}
         onAudioSeek={handleAudioSeek}
         onAudioSkip={handleAudioSkip}
+        onInjectAndStart={(fileId, fileName, duration) => {
+          // Queue the file then start broadcast — useEffect fires injection once streaming
+          pendingInjectRef.current = { fileId, fileName, duration };
+          startBroadcast();
+        }}
       />
     )}
 
