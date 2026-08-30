@@ -5,21 +5,27 @@
 
 const fs = require('fs');
 const path = require('path');
-const AWS = require('aws-sdk');
+const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const ffmpeg = require('fluent-ffmpeg');
 const { v4: uuidv4 } = require('uuid');
 const config = require('../config');
 
-// Configure AWS
-if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-  AWS.config.update({
-    region: config.AWS_REGION,
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-  });
+// Lazy S3 client — only created when actually needed (saves ~40MB at startup)
+let _s3Client = null;
+function getS3Client() {
+  if (!_s3Client) {
+    _s3Client = new S3Client({
+      region: config.AWS_REGION,
+      endpoint: process.env.AWS_ENDPOINT || undefined, // DigitalOcean Spaces endpoint
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+      },
+      forcePathStyle: !!process.env.AWS_ENDPOINT, // required for Spaces
+    });
+  }
+  return _s3Client;
 }
-
-const s3 = new AWS.S3();
 
 class AudioConversionService {
   constructor(databaseService) {
@@ -111,7 +117,7 @@ class AudioConversionService {
       } finally {
         this.processing.delete(job.jobId);
       }
-    }, 1000);
+    }, 5000); // Poll every 5s — no need to spin every second
   }
 
   async processConversion(job) {
@@ -140,12 +146,18 @@ class AudioConversionService {
       job.progress = 10;
       console.log(`📥 Downloading ${originalKey} from S3...`);
       
-      const s3Object = await s3.getObject({
+      const s3GetResponse = await getS3Client().send(new GetObjectCommand({
         Bucket: config.AWS_S3_BUCKET,
         Key: originalKey
-      }).promise();
+      }));
 
-      await fs.promises.writeFile(tempInputPath, s3Object.Body);
+      // Stream directly to disk — avoids loading the whole file into RAM
+      const inputWriteStream = fs.createWriteStream(tempInputPath);
+      await new Promise((resolve, reject) => {
+        s3GetResponse.Body.pipe(inputWriteStream);
+        inputWriteStream.on('finish', resolve);
+        inputWriteStream.on('error', reject);
+      });
       job.progress = 30;
 
       // Convert to MP3 using FFmpeg
@@ -153,16 +165,16 @@ class AudioConversionService {
       await this.convertAudioFile(tempInputPath, tempOutputPath, format);
       job.progress = 70;
 
-      // Upload MP3 to S3
+      // Upload MP3 to S3 — stream from disk rather than loading into RAM
       console.log(`📤 Uploading MP3 to S3...`);
-      const mp3Data = await fs.promises.readFile(tempOutputPath);
+      const mp3Stream = fs.createReadStream(tempOutputPath);
       
-      await s3.putObject({
+      await getS3Client().send(new PutObjectCommand({
         Bucket: config.AWS_S3_BUCKET,
         Key: playbackKey,
-        Body: mp3Data,
+        Body: mp3Stream,
         ContentType: 'audio/mpeg'
-      }).promise();
+      }));
 
       const playbackUrl = `https://${config.AWS_S3_BUCKET}.s3.${config.AWS_REGION}.amazonaws.com/${playbackKey}`;
       job.progress = 90;

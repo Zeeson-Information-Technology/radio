@@ -966,7 +966,9 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       // CRITICAL FIX: Create processor with 2 input channels to match microphone stream
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const processor = audioContext.createScriptProcessor(4096, 2, 2); // Match microphone channels (usually stereo)
+      // 1024 samples @ 44100Hz = 23ms per callback (vs 93ms at 4096).
+      // Smaller buffer = faster gain switch response at the gateway.
+      const processor = audioContext.createScriptProcessor(1024, 2, 2);
       const gainNode = audioContext.createGain();
 
       // Configure analyser for level meter

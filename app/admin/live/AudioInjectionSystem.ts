@@ -121,13 +121,11 @@ class AudioInjectionSystem {
       throw new Error('AudioInjectionSystem not initialised — call initializeWithContext() first');
     }
 
-    // Clean up any previous element unconditionally — covers replay after completion
-    // where isPlaying/isPaused are both false but a stale mediaSource may still exist
-    this.cleanupAudioElement();
+    // Zero injection gain, disconnect old element, wait for pipeline to drain
+    await this.drainAndSwitch();
 
-    // Mute mic before audio starts — instantaneous gain change
+    // Mute mic while injection is loading
     this.setMicGain(0);
-    this.setInjectionGain(0);
 
     try {
       const audioElement = new Audio();
@@ -190,14 +188,16 @@ class AudioInjectionSystem {
     if (!this.audioElement) return;
 
     try {
+      // Zero injection gain instantly before pausing so no residual frames
+      // bleed through the pipeline after the pause
+      this.setInjectionGain(0);
       this.audioElement.pause();
       this.playbackState.isPaused = true;
       this.playbackState.isPlaying = false;
       this.playbackState.pausedAt = this.audioElement.currentTime;
 
-      // Restore mic immediately — presenter can now speak live
+      // Restore mic immediately
       this.setMicGain(1);
-      this.setInjectionGain(0);
 
       this.onMicrophoneMuted?.(false);
       console.log('⏸️ Injection paused — mic restored for presenter speech');
@@ -214,11 +214,13 @@ class AudioInjectionSystem {
     if (!this.audioElement) return;
 
     try {
-      // Mute mic before audio restarts — no overlap
+      // Mute mic before audio restarts
       this.setMicGain(0);
-      this.setInjectionGain(1);
 
       await this.audioElement.play();
+
+      // Open injection only after play() resolves — audio is actually flowing
+      this.setInjectionGain(1);
 
       this.playbackState.isPlaying = true;
       this.playbackState.isPaused = false;
@@ -226,7 +228,6 @@ class AudioInjectionSystem {
       this.onMicrophoneMuted?.(true);
       console.log('▶️ Injection resumed');
     } catch (error) {
-      // On failure, restore mic so presenter isn't silenced
       this.setMicGain(1);
       this.setInjectionGain(0);
       console.error('❌ Failed to resume injection:', error);
@@ -235,12 +236,12 @@ class AudioInjectionSystem {
   }
 
   stopPlayback(): void {
+    // Zero injection instantly before cleanup
+    this.setInjectionGain(0);
     this.cleanupAudioElement();
     this.stopProgressTracking();
 
-    // Restore mic, silence injection
     this.setMicGain(1);
-    this.setInjectionGain(0);
     this.onMicrophoneMuted?.(false);
 
     this.playbackState = {
@@ -301,11 +302,9 @@ class AudioInjectionSystem {
 
   private setMicGain(value: number): void {
     if (this.micGainNode && this.audioContext) {
-      // Use linearRampToValueAtTime for a very short (~10ms) fade to avoid clicks
       const t = this.audioContext.currentTime;
       this.micGainNode.gain.cancelScheduledValues(t);
-      this.micGainNode.gain.setValueAtTime(this.micGainNode.gain.value, t);
-      this.micGainNode.gain.linearRampToValueAtTime(value, t + 0.01);
+      this.micGainNode.gain.setValueAtTime(value, t); // instant — no ramp
     }
   }
 
@@ -313,9 +312,20 @@ class AudioInjectionSystem {
     if (this.injectionGainNode && this.audioContext) {
       const t = this.audioContext.currentTime;
       this.injectionGainNode.gain.cancelScheduledValues(t);
-      this.injectionGainNode.gain.setValueAtTime(this.injectionGainNode.gain.value, t);
-      this.injectionGainNode.gain.linearRampToValueAtTime(value, t + 0.01);
+      this.injectionGainNode.gain.setValueAtTime(value, t); // instant — no ramp
     }
+  }
+
+  // Hard-cut injection to silence, disconnect old source, wait for the
+  // ScriptProcessor to flush its current buffer, then allow new audio to start.
+  private async drainAndSwitch(): Promise<void> {
+    // 1. Zero injection gain instantly — no ramp, prevents bleed
+    this.setInjectionGain(0);
+    // 2. Disconnect old source from the gain node immediately
+    this.cleanupAudioElement();
+    // 3. Wait two ScriptProcessor cycles (2 × 1024/44100 ≈ 50ms) so the gateway
+    //    receives clean silence frames before the new audio opens
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   private cleanupAudioElement(): void {
@@ -361,11 +371,11 @@ class AudioInjectionSystem {
   private handlePlaybackComplete(): void {
     this.stopProgressTracking();
 
-    // Zero injection gain and clean up — synchronous, no setTimeout
+    // Zero injection instantly and clean up
     this.setInjectionGain(0);
     this.cleanupAudioElement();
 
-    // Restore mic immediately — synchronous so nothing can interrupt it
+    // Restore mic immediately — synchronous
     this.setMicGain(1);
     this.onMicrophoneMuted?.(false);
 

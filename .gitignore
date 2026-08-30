@@ -35,6 +35,10 @@ yarn-error.log*
 .env*
 /gateway/.env
 
+# Server config files with credentials — push directly via scp, not through git
+# Template version (with placeholders) is committed; real version lives on server only
+# Use: scp ICECAST_LOW_LATENCY_CONFIG.xml root@178.128.46.95:/etc/icecast2/icecast.xml
+
 # vercel
 .vercel
 

@@ -19,6 +19,8 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   const { confirm } = useConfirm();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
+  const stallCountRef = useRef(0);     // counts stall events within a window
+  const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Ensure we always have valid liveData with proper fallbacks
   const [liveData, setLiveData] = useState<LiveData>(() => {
@@ -336,9 +338,14 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
           lecturer: liveData.lecturer 
         });
 
-        // Set src directly — avoids load() resetting the element
-        // and avoids a redundant HEAD request that wastes a connection
-        audioRef.current.src = liveData.streamUrl;
+        // Append timestamp to bust any CDN/proxy cache and force connection
+        // to the live edge rather than a buffered response.
+        const liveUrl = `${liveData.streamUrl}${liveData.streamUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        audioRef.current.src = liveUrl;
+
+        // Disable pitch preservation — not needed for radio, saves CPU
+        (audioRef.current as any).mozPreservesPitch = false;
+        (audioRef.current as any).webkitPreservesPitch = false;
 
         // Show buffering spinner immediately — audio isn't audible yet
         setIsBuffering(true);
@@ -346,7 +353,23 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         // 'playing' fires when audio actually starts outputting sound
         const handlePlaying = () => setIsBuffering(false);
         // 'waiting'/'stalled' fire on slow connections or mid-stream rebuffering
-        const handleWaiting = () => setIsBuffering(true);
+        const handleWaiting = () => {
+          setIsBuffering(true);
+          // Count stalls — if 3 stalls in 30s, reconnect to flush stale buffer
+          stallCountRef.current += 1;
+          if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+          stallTimerRef.current = setTimeout(() => { stallCountRef.current = 0; }, 30000);
+          if (stallCountRef.current >= 3) {
+            stallCountRef.current = 0;
+            console.log('⚠️ Frequent stalling detected — reconnecting to live edge');
+            // Reconnect: reset src to flush browser buffer and re-fetch from server
+            if (audioRef.current) {
+              const freshUrl = `${liveData.streamUrl}?t=${Date.now()}`;
+              audioRef.current.src = freshUrl;
+              audioRef.current.play().catch(() => {});
+            }
+          }
+        };
         const handleStalled = () => setIsBuffering(true);
 
         // Error handler — fires if the stream can't be decoded or connection fails

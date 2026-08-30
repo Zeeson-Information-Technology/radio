@@ -47,9 +47,12 @@ function setLiveAudioData(audioData) {
     }
   });
 
-  // Keep last 64KB as catch-up buffer for new connections
-  liveAudioBuffer = audioData.length > 65536
-    ? audioData.slice(-65536)
+  // Keep only the last ~4KB as a catch-up buffer (≈2 MP3 frames at 128kbps).
+  // Purpose: prime the new listener's MP3 decoder so it can sync immediately.
+  // Keeping more than this causes new listeners to start seconds behind
+  // existing ones — they receive stale audio and never catch up.
+  liveAudioBuffer = audioData.length > 4096
+    ? audioData.slice(-4096)
     : audioData;
 }
 
@@ -99,6 +102,17 @@ router.get('/test-stream', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Transfer-Encoding', 'chunked');
+  // Tell nginx/Cloudflare not to buffer this response
+  res.setHeader('X-Accel-Buffering', 'no');
+  // ICY headers — hint to media players that this is a live stream, not a file.
+  // This suppresses browser seek-buffering behaviour that causes desync.
+  res.setHeader('icy-br', '128');
+  res.setHeader('icy-metaint', '0');
+
+  // Disable Nagle's algorithm — send each MP3 chunk immediately without
+  // waiting to batch with subsequent writes. Without this, Node's TCP stack
+  // can delay small chunks by 40–200ms, causing listeners to drift apart.
+  if (res.socket) res.socket.setNoDelay(true);
 
   activeStreams.add(res);
   console.log(`📻 Listener connected (${activeStreams.size} total), audioStreamActive=${audioStreamActive}`);
