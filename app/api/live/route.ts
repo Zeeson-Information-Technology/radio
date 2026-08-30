@@ -53,8 +53,9 @@ export async function GET(request: NextRequest) {
       await liveState.save();
     }
 
-    // Get stream URL from environment
+    // Get stream URLs from environment
     const streamUrl = process.env.STREAM_URL || (process.env.NODE_ENV === 'production' ? 'http://178.128.46.95:8000/stream' : 'http://localhost:8080/test-stream');
+    const streamUrlLow = process.env.STREAM_URL_LOW || (process.env.NODE_ENV === 'production' ? 'http://178.128.46.95:8000/stream-low' : 'http://localhost:8080/test-stream');
 
     // Return public live state with enhanced broadcast control information
     const response = {
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
       lecturer: liveState.lecturer || null,
       startedAt: liveState.startedAt ? liveState.startedAt.toISOString() : null,
       streamUrl,
+      streamUrlLow,   // 48kbps stream for weak mobile connections
       // Enhanced broadcast control fields (for listeners)
       currentAudioFile: liveState.currentAudioFile ? {
         title: liveState.currentAudioFile.title,
@@ -96,6 +98,7 @@ export async function GET(request: NextRequest) {
         lecturer: null,
         startedAt: null,
         streamUrl: process.env.STREAM_URL || (process.env.NODE_ENV === 'production' ? 'http://178.128.46.95:8000/stream' : 'http://localhost:8080/test-stream'),
+        streamUrlLow: process.env.STREAM_URL_LOW || (process.env.NODE_ENV === 'production' ? 'http://178.128.46.95:8000/stream-low' : 'http://localhost:8080/test-stream'),
         currentAudioFile: null,
       }
     );

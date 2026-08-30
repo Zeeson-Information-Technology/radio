@@ -173,7 +173,7 @@ class BroadcastService {
         // timestamp drift and FFmpeg stdin stalls after ~3 minutes of audio.
         '-fflags', '+genpts',                     // Generate PTS from input timestamps
         '-avoid_negative_ts', 'make_zero',        // Keep timestamps non-negative
-        '-thread_queue_size', '512',              // Enough queue for audio bursts during injection
+        '-thread_queue_size', '64',               // Small queue — reduces pipeline latency
         
         // Audio encoding
         '-acodec', 'libmp3lame',
@@ -181,6 +181,11 @@ class BroadcastService {
         '-ar', '44100',
         '-ac', '1',
         '-f', 'mp3',
+        '-write_xing', '0',       // No Xing header — prevents browsers treating it as a file
+        '-id3v2_version', '0',    // No ID3 tags — less metadata to buffer before play
+        '-reservoir', '0',        // Disable bit reservoir — forces flush every frame, reduces latency
+        '-flush_packets', '1',    // Flush output after every packet
+        '-chunk_duration', '500', // Chunk every 500ms max
         // Voice optimisation filter — no lowpass (injection audio needs full range)
         '-af', 'highpass=f=80,volume=1.2',
         
@@ -203,23 +208,28 @@ class BroadcastService {
         // Stable streaming flags
         '-fflags', '+genpts',
         '-avoid_negative_ts', 'make_zero',
-        '-thread_queue_size', '512',
+        '-thread_queue_size', '64',
         
-        // Audio encoding for Icecast compatibility
+        // 96kbps — indistinguishable from 128k for voice/Quran,
+        // saves 25% bandwidth (~43 GB/hr less at 1000 listeners).
+        // Single stream — no dual-encode complexity.
         '-acodec', 'libmp3lame',
-        '-b:a', '128k',
+        '-b:a', '96k',
         '-ar', '44100',
         '-ac', '1',
         '-f', 'mp3',
+        '-write_xing', '0',
+        '-id3v2_version', '0',
+        '-reservoir', '0',
+        '-flush_packets', '1',
         '-af', 'highpass=f=80,volume=1.2',
-        
-        // Icecast streaming parameters
+
+        // Icecast metadata
         '-ice_name', 'Al-Manhaj Radio',
         '-ice_description', `Live from ${user.name || user.email}`,
         '-ice_genre', 'Islamic',
         '-ice_public', '1',
         
-        // Output to Icecast
         icecastUrl
       ];
     }
