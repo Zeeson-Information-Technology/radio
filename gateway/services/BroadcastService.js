@@ -59,7 +59,7 @@ class BroadcastService {
     const audioConfig = {
       sampleRate: 44100,  // Fixed sample rate for consistency
       channels: 1,        // Mono for radio broadcasting
-      bitrate: 128        // Standard MP3 bitrate
+      bitrate: 64         // 64kbps — transparent for voice/Quran, 33% less bandwidth than 96k
     };
 
     // Update database - set live state
@@ -109,7 +109,7 @@ class BroadcastService {
         config: {
           sampleRate: streamConfig.sampleRate || 22050,
           channels: streamConfig.channels || 1,
-          bitrate: streamConfig.bitrate || 96
+          bitrate: streamConfig.bitrate || 64
         }
       }));
       return;
@@ -122,7 +122,7 @@ class BroadcastService {
       const audioConfig = {
         sampleRate: streamConfig.sampleRate || 22050,
         channels: streamConfig.channels || 1,
-        bitrate: streamConfig.bitrate || 96
+        bitrate: streamConfig.bitrate || 64
       };
 
       // Don't update startedAt - keep original time
@@ -175,18 +175,17 @@ class BroadcastService {
         '-avoid_negative_ts', 'make_zero',        // Keep timestamps non-negative
         '-thread_queue_size', '64',               // Small queue — reduces pipeline latency
         
-        // Audio encoding
+        // Audio encoding — 64kbps MP3, transparent for voice
         '-acodec', 'libmp3lame',
-        '-b:a', '128k',
+        '-b:a', '64k',
         '-ar', '44100',
         '-ac', '1',
         '-f', 'mp3',
-        '-write_xing', '0',       // No Xing header — prevents browsers treating it as a file
-        '-id3v2_version', '0',    // No ID3 tags — less metadata to buffer before play
-        '-reservoir', '0',        // Disable bit reservoir — forces flush every frame, reduces latency
-        '-flush_packets', '1',    // Flush output after every packet
-        '-chunk_duration', '500', // Chunk every 500ms max
-        // Voice optimisation filter — no lowpass (injection audio needs full range)
+        '-write_xing', '0',
+        '-id3v2_version', '0',
+        '-reservoir', '0',
+        '-flush_packets', '1',
+        '-chunk_duration', '500',
         '-af', 'highpass=f=80,volume=1.2',
         
         // Output to stdout for live streaming
@@ -210,11 +209,12 @@ class BroadcastService {
         '-avoid_negative_ts', 'make_zero',
         '-thread_queue_size', '64',
         
-        // 96kbps — indistinguishable from 128k for voice/Quran,
-        // saves 25% bandwidth (~43 GB/hr less at 1000 listeners).
-        // Single stream — no dual-encode complexity.
+        // 64kbps at 44100Hz — transparent for voice/Quran on weak mobile connections.
+        // Reduces per-listener bandwidth by 33% vs 96kbps (10 KB/s vs 12 KB/s).
+        // Indistinguishable from higher bitrates for speech content.
+        // Revert to 96k if audio quality complaints arise.
         '-acodec', 'libmp3lame',
-        '-b:a', '96k',
+        '-b:a', '64k',
         '-ar', '44100',
         '-ac', '1',
         '-f', 'mp3',
@@ -315,7 +315,7 @@ class BroadcastService {
           const audioConfig = {
             sampleRate: 44100,
             channels: 1,
-            bitrate: 128
+            bitrate: 64
           };
           this.startFFmpeg(broadcast.ws, broadcast.user, audioConfig);
         }, 3000);
@@ -540,7 +540,7 @@ class BroadcastService {
     
     setTimeout(() => {
       if (this.currentBroadcast && this.currentBroadcast.ws === ws) {
-        this.startFFmpeg(ws, user, { sampleRate: 22050, channels: 1, bitrate: 96 });
+        this.startFFmpeg(ws, user, { sampleRate: 44100, channels: 1, bitrate: 64 });
       }
     }, 1000);
   }

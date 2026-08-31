@@ -19,8 +19,11 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   const { confirm } = useConfirm();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
-  const stallCountRef = useRef(0);     // counts stall events within a window
+  const stallCountRef = useRef(0);
   const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Always-current stream URL for use inside SSE closure (avoids stale closure)
+  const streamUrlRef = useRef(liveData.streamUrl);
+  useEffect(() => { streamUrlRef.current = liveData.streamUrl; }, [liveData.streamUrl]);
   
   // Ensure we always have valid liveData with proper fallbacks
   const [liveData, setLiveData] = useState<LiveData>(() => {
@@ -184,7 +187,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 break;
 
               case 'audio_playback_pause':
-                console.log('📡 Received audio playback pause notification');
+                console.log('📡 Received audio playback pause — reconnecting to live edge');
                 setLiveData(prev => ({
                   ...prev,
                   currentAudioFile: prev.currentAudioFile ? {
@@ -192,10 +195,27 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                     isPaused: true
                   } : null
                 }));
+                // Reconnect listener to live edge — dumps pre-buffered injection audio.
+                // Without this, listeners hear up to 1-2 minutes of buffered audio
+                // before the presenter's mic comes through.
+                if (audioRef.current && audioRef.current.src) {
+                  setIsBuffering(true);
+                  // Remove listeners before src change to avoid spurious error events
+                  if (audioEventHandlersRef.current) {
+                    audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
+                    audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
+                    audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
+                    audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
+                    audioEventHandlersRef.current = null;
+                  }
+                  const freshUrl = `${streamUrlRef.current}?t=${Date.now()}`;
+                  audioRef.current.src = freshUrl;
+                  audioRef.current.play().catch(() => {});
+                }
                 break;
 
               case 'audio_playback_resume':
-                console.log('📡 Received audio playback resume notification');
+                console.log('📡 Received audio playback resume — reconnecting to live edge');
                 setLiveData(prev => ({
                   ...prev,
                   currentAudioFile: prev.currentAudioFile ? {
@@ -203,6 +223,21 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                     isPaused: false
                   } : null
                 }));
+                // Reconnect again on resume so listener hears the injection audio
+                // from the live edge, not from a stale buffer position.
+                if (audioRef.current && audioRef.current.src) {
+                  setIsBuffering(true);
+                  if (audioEventHandlersRef.current) {
+                    audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
+                    audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
+                    audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
+                    audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
+                    audioEventHandlersRef.current = null;
+                  }
+                  const freshUrl = `${streamUrlRef.current}?t=${Date.now()}`;
+                  audioRef.current.src = freshUrl;
+                  audioRef.current.play().catch(() => {});
+                }
                 break;
 
               case 'audio_playback_seek':

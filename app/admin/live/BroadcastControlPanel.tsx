@@ -78,6 +78,9 @@ export default function BroadcastControlPanel({
     fileId: string | null;
     data: any | null;
   }>({ fileId: null, data: null });
+  // Seek bar drag state — while dragging we show a local value so the bar doesn't
+  // snap back to the progress-interval value mid-drag. Seek only fires on release.
+  const [seekDragValue, setSeekDragValue] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
   // Live audio modals
@@ -493,17 +496,27 @@ export default function BroadcastControlPanel({
 
                     {/* Enhanced Audio Controls */}
                     <div className="mt-3 lg:mt-4 space-y-2">
-                      {/* Seek Bar */}
+                      {/* Seek Bar — uncontrolled during drag, commits on release */}
                       <div className="flex items-center gap-2">
                         <input
                           type="range"
                           min="0"
-                          max={playbackDuration}
-                          value={playbackProgress}
-                          onChange={(e) => onAudioSeek?.(Number(e.target.value))}
+                          max={playbackDuration || 100}
+                          value={seekDragValue ?? playbackProgress}
+                          onChange={(e) => setSeekDragValue(Number(e.target.value))}
+                          onMouseUp={(e) => {
+                            const val = Number((e.target as HTMLInputElement).value);
+                            onAudioSeek?.(val);
+                            setSeekDragValue(null);
+                          }}
+                          onTouchEnd={(e) => {
+                            const val = Number((e.target as HTMLInputElement).value);
+                            onAudioSeek?.(val);
+                            setSeekDragValue(null);
+                          }}
                           className="flex-1 h-2 bg-emerald-200 rounded-lg appearance-none cursor-pointer"
                           style={{
-                            background: `linear-gradient(to right, #10b981 0%, #10b981 ${(playbackProgress / playbackDuration) * 100}%, #a7f3d0 ${(playbackProgress / playbackDuration) * 100}%, #a7f3d0 100%)`
+                            background: `linear-gradient(to right, #10b981 0%, #10b981 ${((seekDragValue ?? playbackProgress) / (playbackDuration || 1)) * 100}%, #a7f3d0 ${((seekDragValue ?? playbackProgress) / (playbackDuration || 1)) * 100}%, #a7f3d0 100%)`
                           }}
                         />
                       </div>

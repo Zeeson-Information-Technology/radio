@@ -257,7 +257,13 @@ class AudioInjectionSystem {
 
   async seekTo(timeInSeconds: number): Promise<void> {
     if (!this.audioElement || !this.playbackState.currentFile) return;
-    const seekTime = Math.max(0, Math.min(timeInSeconds, this.playbackState.currentFile.duration));
+    // Use the actual loaded duration from the audio element — DB metadata is often
+    // wrong (e.g. 184s stored for a 24-minute file), which causes skip buttons to
+    // stop at the wrong position or appear broken entirely.
+    const realDuration = isFinite(this.audioElement.duration) && this.audioElement.duration > 0
+      ? this.audioElement.duration
+      : this.playbackState.currentFile.duration;
+    const seekTime = Math.max(0, Math.min(timeInSeconds, realDuration));
     this.audioElement.currentTime = seekTime;
     this.playbackState.progress = seekTime;
   }
