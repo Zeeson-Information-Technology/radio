@@ -94,7 +94,7 @@
         <stream-description>Islamic lectures and Quran recitation following the way of the Salaf</stream-description>
         <stream-url>https://almanhaj.vercel.app</stream-url>
         <genre>Religious</genre>
-        <bitrate>96</bitrate>
+        <bitrate>64</bitrate>
         <type>audio/mpeg</type>
         <fallback-mount>/offline.mp3</fallback-mount>
         <fallback-override>1</fallback-override>
