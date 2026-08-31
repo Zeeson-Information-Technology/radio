@@ -78,7 +78,7 @@
          burst-size    = how much audio to send immediately on connect (catch-up).
                          4096 bytes = ~0.25s at 128kbps. Small = fast start,
                          and new listeners stay close to the live edge.
-         queue-size    = per-listener buffer. 16384 = 16 KB = ~1s at 128kbps.
+         queue-size    = per-listener buffer. 8192 = 8 KB = ~1s at 64kbps.
          bitrate       = must match FFmpeg -b:a value (128k). Informational only
                          but used by some players and directory listings.
     ──────────────────────────────────────────────────────────────────────── -->
@@ -88,7 +88,9 @@
         <password>ICECAST_SOURCE_PASSWORD</password>
         <max-listeners>9995</max-listeners>
         <burst-size>4096</burst-size>
-        <queue-size>16384</queue-size>
+        <queue-size>8192</queue-size>        <!-- 8 KB = ~1s at 64kbps. Halved from 16KB —
+                                                 thinner buffer means listener reconnect on
+                                                 pause/resume reaches live edge faster. -->
         <public>1</public>
         <stream-name>Al-Manhaj Radio</stream-name>
         <stream-description>Islamic lectures and Quran recitation following the way of the Salaf</stream-description>
