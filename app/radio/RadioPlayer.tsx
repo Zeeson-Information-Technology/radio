@@ -21,9 +21,6 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   const [isBuffering, setIsBuffering] = useState(false);
   const stallCountRef = useRef(0);
   const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
-  // Always-current stream URL for use inside SSE closure (avoids stale closure)
-  const streamUrlRef = useRef(liveData.streamUrl);
-  useEffect(() => { streamUrlRef.current = liveData.streamUrl; }, [liveData.streamUrl]);
   
   // Ensure we always have valid liveData with proper fallbacks
   const [liveData, setLiveData] = useState<LiveData>(() => {
@@ -62,6 +59,10 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   
   const [volume, setVolume] = useState(80);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Always-current stream URL for use inside SSE closure (avoids stale closure)
+  const streamUrlRef = useRef(liveData.streamUrl);
+  useEffect(() => { streamUrlRef.current = liveData.streamUrl; }, [liveData.streamUrl]);
 
   const audioRef = useRef<HTMLAudioElement>(null!);
   // Store audio event handlers so they can be removed on stop
