@@ -188,7 +188,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 break;
 
               case 'audio_playback_pause':
-                console.log('📡 Received audio playback pause — reconnecting to live edge');
+                console.log('📡 Received audio playback pause notification');
                 setLiveData(prev => ({
                   ...prev,
                   currentAudioFile: prev.currentAudioFile ? {
@@ -196,27 +196,13 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                     isPaused: true
                   } : null
                 }));
-                // Reconnect listener to live edge — dumps pre-buffered injection audio.
-                // Without this, listeners hear up to 1-2 minutes of buffered audio
-                // before the presenter's mic comes through.
-                if (audioRef.current && audioRef.current.src) {
-                  setIsBuffering(true);
-                  // Remove listeners before src change to avoid spurious error events
-                  if (audioEventHandlersRef.current) {
-                    audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
-                    audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
-                    audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
-                    audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
-                    audioEventHandlersRef.current = null;
-                  }
-                  const freshUrl = `${streamUrlRef.current}?t=${Date.now()}`;
-                  audioRef.current.src = freshUrl;
-                  audioRef.current.play().catch(() => {});
-                }
+                // Note: we do NOT reconnect on pause — reconnecting aggressively
+                // causes a stall loop. The listener will naturally hear the
+                // presenter's mic within the Icecast buffer window (~8KB at 64kbps ≈ 1s).
                 break;
 
               case 'audio_playback_resume':
-                console.log('📡 Received audio playback resume — reconnecting to live edge');
+                console.log('📡 Received audio playback resume notification');
                 setLiveData(prev => ({
                   ...prev,
                   currentAudioFile: prev.currentAudioFile ? {
@@ -224,21 +210,6 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                     isPaused: false
                   } : null
                 }));
-                // Reconnect again on resume so listener hears the injection audio
-                // from the live edge, not from a stale buffer position.
-                if (audioRef.current && audioRef.current.src) {
-                  setIsBuffering(true);
-                  if (audioEventHandlersRef.current) {
-                    audioRef.current.removeEventListener('playing', audioEventHandlersRef.current.playing);
-                    audioRef.current.removeEventListener('waiting', audioEventHandlersRef.current.waiting);
-                    audioRef.current.removeEventListener('stalled', audioEventHandlersRef.current.stalled);
-                    audioRef.current.removeEventListener('error', audioEventHandlersRef.current.error);
-                    audioEventHandlersRef.current = null;
-                  }
-                  const freshUrl = `${streamUrlRef.current}?t=${Date.now()}`;
-                  audioRef.current.src = freshUrl;
-                  audioRef.current.play().catch(() => {});
-                }
                 break;
 
               case 'audio_playback_seek':
@@ -294,7 +265,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         eventSource.close();
       }
     };
-  }, [liveData.streamUrl]);
+  }, []); // Mount only — streamUrl changes are handled via streamUrlRef
 
   // Update audio volume
   useEffect(() => {
@@ -391,14 +362,13 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
         // 'waiting'/'stalled' fire on slow connections or mid-stream rebuffering
         const handleWaiting = () => {
           setIsBuffering(true);
-          // Count stalls — if 3 stalls in 30s, reconnect to flush stale buffer
+          // Count stalls — if 5 stalls in 60s, reconnect to flush stale buffer
           stallCountRef.current += 1;
           if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
-          stallTimerRef.current = setTimeout(() => { stallCountRef.current = 0; }, 30000);
-          if (stallCountRef.current >= 3) {
+          stallTimerRef.current = setTimeout(() => { stallCountRef.current = 0; }, 60000);
+          if (stallCountRef.current >= 5) {
             stallCountRef.current = 0;
             console.log('⚠️ Frequent stalling detected — reconnecting to live edge');
-            // Reconnect: reset src to flush browser buffer and re-fetch from server
             if (audioRef.current) {
               const freshUrl = `${liveData.streamUrl}?t=${Date.now()}`;
               audioRef.current.src = freshUrl;
