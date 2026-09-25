@@ -4,6 +4,7 @@ import Navigation from "./components/Navigation";
 import { ModalProvider } from "@/lib/contexts/ModalContext";
 import { ToastProvider } from "@/lib/contexts/ToastContext";
 import ToastContainer from "@/components/ui/ToastContainer";
+import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 
 export const metadata: Metadata = {
   title: {
@@ -13,6 +14,12 @@ export const metadata: Metadata = {
   description: "Listen to authentic Islamic lectures following the prophetic methodology. Live sessions with knowledgeable scholars and 24/7 Islamic content.",
   keywords: "Al-Manhaj, Al-Manhaj Radio, Islamic lectures, Quran recitation, Sunnah, authentic Islam, Islamic knowledge, manhaj, Salaf",
   authors: [{ name: "Al-Manhaj Radio" }],
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Al-Manhaj Radio',
+  },
   openGraph: {
     title: "Al-Manhaj Radio - Authentic Islamic Knowledge",
     description: "Listen to authentic Islamic lectures following the prophetic methodology.",
@@ -29,6 +36,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body className="min-h-screen bg-white antialiased" suppressHydrationWarning>
+        <ServiceWorkerRegistrar />
         <ToastProvider>
           <ModalProvider>
             <Navigation />

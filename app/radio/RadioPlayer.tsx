@@ -10,6 +10,19 @@ import { LiveData } from "./types";
 import { useToast } from "@/lib/contexts/ToastContext";
 import { useConfirm } from "@/lib/hooks/useConfirm";
 
+// ── Push notification helpers ────────────────────────────────────────────────
+
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const buffer = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) {
+    buffer[i] = rawData.charCodeAt(i);
+  }
+  return buffer.buffer;
+}
+
 interface RadioPlayerProps {
   initialData: LiveData;
 }
@@ -59,6 +72,12 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
   
   const [volume, setVolume] = useState(80);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // ── Push notification state ────────────────────────────────────────────────
+  const [notifySupported, setNotifySupported] = useState(false);
+  const [notifyPermission, setNotifyPermission] = useState<NotificationPermission>('default');
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [isSubscribing, setIsSubscribing] = useState(false);
 
   // Always-current stream URL for use inside SSE closure (avoids stale closure)
   const streamUrlRef = useRef(liveData.streamUrl);
@@ -273,6 +292,85 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
       audioRef.current.volume = volume / 100;
     }
   }, [volume]);
+
+  // ── Android install prompt ────────────────────────────────────────────────
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    setNotifySupported(true);
+    setNotifyPermission(Notification.permission);
+
+    // SW already registered globally by ServiceWorkerRegistrar in layout
+    navigator.serviceWorker.ready.then(async (registration) => {
+      const existing = await registration.pushManager.getSubscription();
+      setIsSubscribed(!!existing);
+    }).catch(() => {});
+  }, []);
+
+  const handleNotifyToggle = useCallback(async () => {
+    if (!notifySupported || isSubscribing) return;
+    setIsSubscribing(true);
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+
+      if (isSubscribed) {
+        // Unsubscribe
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          await subscription.unsubscribe();
+          await fetch('/api/push/unsubscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: subscription.endpoint }),
+          });
+        }
+        setIsSubscribed(false);
+        setNotifyPermission(Notification.permission);
+      } else {
+        // Request permission then subscribe
+        const permission = await Notification.requestPermission();
+        setNotifyPermission(permission);
+        if (permission !== 'granted') return;
+
+        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!;
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            endpoint: subscription.endpoint,
+            keys: {
+              p256dh: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('p256dh')!))),
+              auth: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('auth')!))),
+            },
+            userAgent: navigator.userAgent,
+          }),
+        });
+
+        setIsSubscribed(true);
+      }
+    } catch (err) {
+      console.error('Notification toggle error:', err);
+    } finally {
+      setIsSubscribing(false);
+    }
+  }, [notifySupported, isSubscribed, isSubscribing]);
 
   // Performance optimization: Cleanup on unmount
   useEffect(() => {
@@ -510,6 +608,54 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 onRefresh={handleRefresh}
                 isRefreshing={isRefreshing}
               />
+
+              {/* ── Install + Notification buttons ───────────────────────── */}
+              <div className="px-6 pb-5 flex items-center justify-center gap-3">
+                {/* Android install button — only appears when Chrome supports it */}
+                {installPrompt && (
+                  <button
+                    onClick={() => {
+                      installPrompt.prompt();
+                      installPrompt.userChoice.then(() => setInstallPrompt(null));
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Install App
+                  </button>
+                )}
+
+                {/* Bell — notify when live */}
+                {notifySupported && notifyPermission !== 'denied' && (
+                  <button
+                    onClick={handleNotifyToggle}
+                    disabled={isSubscribing}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all border ${
+                      isSubscribed
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={isSubscribed ? 'Turn off go-live notifications' : 'Get notified when we go live'}
+                  >
+                    {isSubscribing ? (
+                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    ) : isSubscribed ? (
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    )}
+                    {isSubscribing ? 'Please wait…' : isSubscribed ? 'Notifications ON' : 'Notify me when live'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Advertisement Billboard - Hidden on mobile, shown on desktop */}
