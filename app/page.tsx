@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 export default function HomePage() {
   const [isLive, setIsLive] = useState(false);
   const [scheduleCount, setScheduleCount] = useState(0);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
 
   useEffect(() => {
     // Fetch live status
@@ -19,6 +20,11 @@ export default function HomePage() {
       .then(res => res.json())
       .then(data => setScheduleCount(data.items?.length || 0))
       .catch(() => {});
+
+    // Capture Android install prompt
+    const handler = (e: any) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   return (
@@ -79,7 +85,7 @@ export default function HomePage() {
               Listen to enlightening lectures, Quran recitations, and beneficial knowledge upon the understanding of the righteous predecessors
             </p>
 
-            {/* CTA Buttons - Traditional Style */}
+            {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row justify-center gap-4 mb-12">
               <Link
                 href="/radio"
@@ -93,16 +99,32 @@ export default function HomePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </Link>
-              
-              <Link
-                href="/library"
-                className="inline-flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-300 text-lg font-semibold"
-              >
-                Browse Audio Library
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </Link>
+
+              {/* Install App — shown on Android/desktop when Chrome offers it, hidden otherwise */}
+              {installPrompt ? (
+                <button
+                  onClick={() => {
+                    installPrompt.prompt();
+                    installPrompt.userChoice.then(() => setInstallPrompt(null));
+                  }}
+                  className="inline-flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-300 text-lg font-semibold"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Install App
+                </button>
+              ) : (
+                <Link
+                  href="/library"
+                  className="inline-flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-300 text-lg font-semibold"
+                >
+                  Browse Audio Library
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </Link>
+              )}
             </div>
 
             {/* Stats */}
@@ -284,15 +306,30 @@ export default function HomePage() {
               </svg>
               Listen Live
             </Link>
-            <Link
-              href="/library"
-              className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-10 py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-              📚 Explore Library
-            </Link>
+            {installPrompt ? (
+              <button
+                onClick={() => {
+                  installPrompt.prompt();
+                  installPrompt.userChoice.then(() => setInstallPrompt(null));
+                }}
+                className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-10 py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Install App
+              </button>
+            ) : (
+              <Link
+                href="/library"
+                className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-10 py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                📚 Explore Library
+              </Link>
+            )}
           </div>
         </div>
       </section>

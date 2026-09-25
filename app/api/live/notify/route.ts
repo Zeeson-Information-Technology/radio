@@ -119,6 +119,25 @@ export async function POST(request: NextRequest) {
 
     // Broadcast to all SSE listeners
     broadcastUpdate(sseEventData);
+
+    // On broadcast_start — fire push notifications to all subscribed devices
+    if (type === 'broadcast_start') {
+      const appUrl = process.env.NEXTJS_API_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://almanhaj.vercel.app';
+      fetch(`${appUrl}/api/push/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`,
+        },
+        body: JSON.stringify({
+          title: '🎙️ Al-Manhaj Radio is Live',
+          body: eventData.title
+            ? `Now broadcasting: ${eventData.title}`
+            : 'A live broadcast has just started. Tap to listen.',
+          url: '/radio',
+        }),
+      }).catch(err => console.warn('Push notification trigger failed (non-critical):', err));
+    }
     
     return NextResponse.json({ 
       success: true, 
