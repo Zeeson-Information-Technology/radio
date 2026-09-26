@@ -13,27 +13,7 @@ export async function POST(request: NextRequest) {
     await connectDB();
     const liveState = await LiveState.findOne({ isLive: true });
 
-    // Use request host for self-fetch — works in both dev and production
-    const host = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
-    try {
-      await fetch(`${host}/api/live/notify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`
-        },
-        body: JSON.stringify({
-          action: 'broadcast_event',
-          type: 'audio_playback_stopped',
-          timestamp: new Date().toISOString(),
-          sessionId: liveState?._id?.toString() || 'local'
-        })
-      });
-    } catch (notifyError) {
-      console.error('Failed to notify listeners:', notifyError);
-    }
-
-    // Notify gateway (best-effort)
+    // Notify gateway — gateway calls /api/live/notify which pushes SSE to listeners.
     if (liveState) {
       try {
         const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
@@ -42,7 +22,7 @@ export async function POST(request: NextRequest) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId: liveState._id.toString(), timestamp: new Date() })
         });
-      } catch { /* not critical */ }
+      } catch { /* gateway not reachable in local dev — not critical */ }
     }
 
     return NextResponse.json({ success: true, message: 'Audio playback stopped', currentAudioFile: null });
