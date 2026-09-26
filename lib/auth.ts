@@ -81,7 +81,7 @@ export function signAccessToken(payload: AccessTokenPayload): string {
     },
     config.jwtSecret,
     {
-      expiresIn: '15m',
+      expiresIn: '2h',
       issuer: 'almanhaj-radio',
       subject: payload.userId,
       algorithm: 'HS256',
@@ -111,7 +111,7 @@ export function signRefreshToken(userId: string, tokenVersion: number): string {
     } as RefreshTokenPayload,
     config.jwtSecret,
     {
-      expiresIn: '7d',
+      expiresIn: '30d',
       issuer: 'almanhaj-radio',
       subject: userId,
       algorithm: 'HS256',

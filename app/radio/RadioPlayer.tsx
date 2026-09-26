@@ -670,17 +670,13 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
               </div>
             </div>
 
-            {/* Advertisement Billboard - Hidden on mobile, shown on desktop */}
+            {/* Advertisement Billboard - commented out until ad partner confirmed
             <div className="hidden lg:block bg-gradient-to-r from-slate-100 via-gray-50 to-slate-100 rounded-2xl shadow-lg overflow-hidden border border-gray-200">
-              {/* Advertisement Label */}
               <div className="bg-gray-200 px-4 py-1">
                 <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Advertisement</p>
               </div>
-              
-              {/* Billboard Content */}
               <div className="p-6">
                 <div className="flex items-center gap-6">
-                  {/* Company Logo */}
                   <div className="flex-shrink-0">
                     <div className="w-16 h-16 bg-blue-600 rounded-xl flex items-center justify-center shadow-md">
                       <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -688,47 +684,26 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                       </svg>
                     </div>
                   </div>
-
-                  {/* Company Information */}
                   <div className="flex-grow">
-                    <h2 className="text-2xl font-bold mb-1 text-gray-800">
-                      Advert Space
-                    </h2>
-                    <p className="text-blue-600 font-semibold text-lg mb-3">
-                      Service Type
-                    </p>
-                    
-                    {/* Contact Information */}
+                    <h2 className="text-2xl font-bold mb-1 text-gray-800">Advert Space</h2>
+                    <p className="text-blue-600 font-semibold text-lg mb-3">Service Type</p>
                     <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-500">📍</span>
-                          <span className="text-gray-700 font-medium">Technical Area, Lagos</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-500">📱</span>
-                          <span className="text-gray-700 font-medium">+234 (0) 803 123 4567</span>
-                        </div>
-                        <div className="flex items-center gap-2 md:col-span-2">
-                          <span className="text-gray-500">📧</span>
-                          <span className="text-gray-700 font-medium">info@almanhaj.com</span>
-                        </div>
+                        <div className="flex items-center gap-2"><span className="text-gray-500">📍</span><span className="text-gray-700 font-medium">Technical Area, Lagos</span></div>
+                        <div className="flex items-center gap-2"><span className="text-gray-500">📱</span><span className="text-gray-700 font-medium">+234 (0) 803 123 4567</span></div>
+                        <div className="flex items-center gap-2 md:col-span-2"><span className="text-gray-500">📧</span><span className="text-gray-700 font-medium">info@almanhaj.com</span></div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Simple Visual Element */}
                   <div className="flex-shrink-0 hidden md:block">
                     <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center border border-blue-200">
-                      <div className="text-center">
-                        <div className="text-3xl text-blue-600">🏗️</div>
-                        <div className="text-xs text-blue-600 font-medium mt-1">Since 2010</div>
-                      </div>
+                      <div className="text-center"><div className="text-3xl text-blue-600">🏗️</div><div className="text-xs text-blue-600 font-medium mt-1">Since 2010</div></div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+            */}
           </div>
 
           {/* Schedule Sidebar */}

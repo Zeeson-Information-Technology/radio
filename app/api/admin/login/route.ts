@@ -113,22 +113,22 @@ export async function POST(request: NextRequest) {
       accessToken,
     });
 
-    // Set access token cookie (short-lived: 15 minutes)
+    // Set access token cookie (2 hours)
     response.cookies.set("admin_token", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
       path: "/",
-      maxAge: 15 * 60, // 15 minutes
+      maxAge: 2 * 60 * 60, // 2 hours
     });
 
-    // Set refresh token cookie (long-lived: 7 days)
+    // Set refresh token cookie (30 days)
     response.cookies.set("admin_refresh_token", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60, // 7 days
+      maxAge: 30 * 24 * 60 * 60, // 30 days
     });
 
     return applyCorsHeaders(response, request, true);

@@ -1,36 +1,38 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 /**
  * Admin layout — wraps all /admin/* pages.
- * Silently refreshes the access token every 10 minutes so admins
- * never get logged out mid-session. The access token lasts 15 minutes;
- * refreshing at 10 minutes gives a 5-minute safety margin.
+ * Silently refreshes the access token every 90 minutes.
+ * Forces redirect to login if refresh token has expired.
  */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
   useEffect(() => {
-    // Refresh immediately on mount (handles page reload after token expiry)
     const refresh = async () => {
       try {
         const res = await fetch('/api/auth/refresh', { method: 'POST' });
         if (res.ok) {
           console.debug('[auth] Access token refreshed silently');
+        } else if (res.status === 401) {
+          // Refresh token expired or revoked — redirect to login cleanly
+          console.warn('[auth] Session expired — redirecting to login');
+          router.push('/admin/login');
         }
-        // 401 means refresh token also expired → user will get redirected
-        // to login naturally on their next API call. No forced redirect here
-        // so the admin doesn't lose work mid-form.
       } catch {
-        // Network error — ignore, will retry in 10 minutes
+        // Network error — ignore, will retry at next interval
       }
     };
 
     refresh();
 
-    // Refresh every 10 minutes (token lasts 15 min, so this keeps it alive)
-    const interval = setInterval(refresh, 10 * 60 * 1000);
+    // Refresh every 90 minutes (access token lasts 2h — 30min safety margin)
+    const interval = setInterval(refresh, 90 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [router]);
 
   return <>{children}</>;
 }

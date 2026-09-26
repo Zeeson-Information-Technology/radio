@@ -57,14 +57,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const autoStopOnCompleteRef = useRef(false);
   useEffect(() => { autoStopOnCompleteRef.current = autoStopOnComplete; }, [autoStopOnComplete]);
 
-  // Post-audio countdown modal state
-  const [showContinueModal, setShowContinueModal] = useState(false);
-  const [continueCountdown, setContinueCountdown] = useState(15);
-  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const countdownAutoStopRef = useRef<NodeJS.Timeout | null>(null);
-  
-
-  
   // Performance optimization: Debounce audio level updates
   const debouncedSetAudioLevel = useCallback(
     debounce((level: number) => {
@@ -136,59 +128,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       console.log(`🎙️ Noise suppression ${next ? 'enabled' : 'disabled'}`);
     }
   }, [noiseSuppressionEnabled]);
-
-  // Clear any running countdown timers
-  const clearCountdownTimers = useCallback(() => {
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
-    }
-    if (countdownAutoStopRef.current) {
-      clearTimeout(countdownAutoStopRef.current);
-      countdownAutoStopRef.current = null;
-    }
-  }, []);
-
-  // Show the "Continue broadcasting?" modal with a 15s countdown
-  const startContinueCountdown = useCallback(() => {
-    setContinueCountdown(15);
-    setShowContinueModal(true);
-
-    // Tick the countdown every second
-    countdownIntervalRef.current = setInterval(() => {
-      setContinueCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(countdownIntervalRef.current!);
-          countdownIntervalRef.current = null;
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    // Auto-stop after 15 seconds if presenter doesn't respond
-    countdownAutoStopRef.current = setTimeout(() => {
-      setShowContinueModal(false);
-      clearInterval(countdownIntervalRef.current!);
-      countdownIntervalRef.current = null;
-      console.log('🛑 No response — auto-stopping broadcast after audio completion');
-      stopBroadcast();
-    }, 15000);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Presenter clicked "Continue" — dismiss modal, keep broadcasting
-  const handleContinueBroadcast = useCallback(() => {
-    clearCountdownTimers();
-    setShowContinueModal(false);
-    console.log('▶️ Presenter chose to continue broadcasting');
-  }, [clearCountdownTimers]);
-
-  // Presenter clicked "Stop Now" — dismiss modal, stop immediately
-  const handleStopFromModal = useCallback(() => {
-    clearCountdownTimers();
-    setShowContinueModal(false);
-    stopBroadcast();
-  }, [clearCountdownTimers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Broadcast control handlers
   const handleMuteToggle = useCallback(async () => {
@@ -281,6 +220,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         setPlaybackProgress(0);
         setPlaybackDuration(duration);
         setMessage(`Playing: ${fileName}`);
+        // Remember this file so we can offer Replay in the post-audio modal
+        lastPlayedFileRef.current = { fileId, fileName, duration };
         
         // OPTIMIZATION: Notify gateway in background (non-blocking)
         fetch('/api/admin/broadcast/audio/play', {
@@ -379,21 +320,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     try {
       if (audioInjectionSystemRef.current) {
         await audioInjectionSystemRef.current.seekTo(timeInSeconds);
-        
-        // Notify gateway about seek
-        const response = await fetch('/api/admin/broadcast/audio/seek', {
+        // Update UI immediately — don't wait for gateway
+        setPlaybackProgress(timeInSeconds);
+        // Notify gateway in background (non-critical)
+        fetch('/api/admin/broadcast/audio/seek', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ time: timeInSeconds }),
-        });
-        
-        if (response.ok) {
-          setPlaybackProgress(timeInSeconds);
-        }
+        }).catch(() => {});
       }
     } catch (error) {
       console.error('Audio seek error:', error);
-      setErrorMessage('Failed to seek audio');
     }
   }, []);
 
@@ -405,22 +342,18 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         } else {
           await audioInjectionSystemRef.current.skipBackward(Math.abs(seconds));
         }
-        
-        // Notify gateway about skip
-        const response = await fetch('/api/admin/broadcast/audio/skip', {
+        // Update UI immediately from the actual audio element position
+        const currentTime = audioInjectionSystemRef.current.getCurrentTime();
+        setPlaybackProgress(currentTime);
+        // Notify gateway in background (non-critical)
+        fetch('/api/admin/broadcast/audio/skip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ seconds }),
-        });
-        
-        if (response.ok) {
-          const currentTime = audioInjectionSystemRef.current.getCurrentTime();
-          setPlaybackProgress(currentTime);
-        }
+        }).catch(() => {});
       }
     } catch (error) {
       console.error('Audio skip error:', error);
-      setErrorMessage('Failed to skip audio');
     }
   }, []);
 
@@ -448,6 +381,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const noiseWorkletRef = useRef<AudioWorkletNode | null>(null);
   // File queued to inject as soon as broadcast reaches 'streaming' state
   const pendingInjectRef = useRef<{ fileId: string; fileName: string; duration: number } | null>(null);
+  // Last played audio file — used to offer Replay in the post-audio modal
+  const lastPlayedFileRef = useRef<{ fileId: string; fileName: string; duration: number } | null>(null);
 
   // Check browser support and existing session on mount
   useEffect(() => {
@@ -601,17 +536,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       clearInterval(pingIntervalRef.current);
       pingIntervalRef.current = null;
     }
-
-    // Clear post-audio countdown if running
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
-    }
-    if (countdownAutoStopRef.current) {
-      clearTimeout(countdownAutoStopRef.current);
-      countdownAutoStopRef.current = null;
-    }
-    setShowContinueModal(false);
 
     // Close WebSocket
     if (wsRef.current) {
@@ -866,11 +790,15 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
         break;
 
       case 'error':
-        // Don't treat "Failed to process message" as a fatal error
-        if (data.message === 'Failed to process message') {
+        // "Stream already active" on reconnect — treat as success, not error
+        if (data.message === 'Stream already active') {
+          console.log('🔄 Stream already active — reconnecting to existing session');
+          setConnectionState('streaming');
+          setMessage('🎙️ Reconnected to active broadcast.');
+          setErrorMessage('');
+        } else if (data.message === 'Failed to process message') {
+          // Non-fatal audio processing warning — stream continues
           console.warn('⚠️ Audio processing warning:', data.message);
-          // Don't change connection state or show error to user
-          // The stream can continue working despite occasional processing errors
         } else {
           console.error('Gateway error:', data.message);
           setConnectionState('error');
@@ -1177,15 +1105,20 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
             setPlaybackDuration(duration);
           },
           () => {
-            // Playback completed naturally — update UI state
+            // Audio finished — auto-replay for continuity.
+            // If admin is present and wants to stop, they can use the Stop button.
             setAudioInjectionActive(false);
             setCurrentAudioFile(null);
             setPlaybackProgress(0);
             setPlaybackDuration(0);
             setIsAudioPaused(false);
-            console.log('✅ Audio injection complete');
-            // Show "Continue broadcasting?" countdown — auto-stops if no response
-            startContinueCountdown();
+            console.log('✅ Audio injection complete — auto-replaying');
+            const last = lastPlayedFileRef.current;
+            if (last) {
+              setTimeout(() => {
+                handleAudioFilePlay(last.fileId, last.fileName, last.duration);
+              }, 500); // brief gap so audio element is fully cleaned up
+            }
           },
           (muted: boolean) => {
             console.log(`🎤 Mic ${muted ? 'muted' : 'unmuted'} for injection`);
@@ -1957,63 +1890,6 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           startBroadcast();
         }}
       />
-    )}
-
-    {/* ── Post-Audio "Continue Broadcasting?" Modal ───────────────────────── */}
-    {showContinueModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-        {/* Modal */}
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
-          {/* Countdown ring */}
-          <div className="relative w-20 h-20 mx-auto mb-4">
-            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-              <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="6" />
-              <circle
-                cx="40" cy="40" r="34" fill="none"
-                stroke={continueCountdown <= 5 ? '#ef4444' : '#f59e0b'}
-                strokeWidth="6"
-                strokeLinecap="round"
-                strokeDasharray={`${2 * Math.PI * 34}`}
-                strokeDashoffset={`${2 * Math.PI * 34 * (1 - continueCountdown / 15)}`}
-                className="transition-all duration-1000 ease-linear"
-              />
-            </svg>
-            <span className={`absolute inset-0 flex items-center justify-center text-2xl font-bold ${
-              continueCountdown <= 5 ? 'text-red-500' : 'text-amber-500'
-            }`}>
-              {continueCountdown}
-            </span>
-          </div>
-
-          <h2 className="text-xl font-bold text-slate-800 mb-2">Audio finished</h2>
-          <p className="text-slate-500 text-sm mb-6">
-            Continue broadcasting, or the stream will stop automatically.
-          </p>
-
-          <div className="flex gap-3">
-            <button
-              onClick={handleStopFromModal}
-              className="flex-1 px-4 py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition-colors text-sm"
-            >
-              Stop Now
-            </button>
-            <button
-              onClick={handleContinueBroadcast}
-              className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors text-sm"
-              autoFocus
-            >
-              Continue
-            </button>
-          </div>
-
-          <p className="text-xs text-slate-400 mt-3">
-            Stream stops in {continueCountdown}s if no response
-          </p>
-        </div>
-      </div>
     )}
 
     {/* Broadcast Error Handler */}
