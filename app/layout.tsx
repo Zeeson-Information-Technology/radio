@@ -5,6 +5,7 @@ import { ModalProvider } from "@/lib/contexts/ModalContext";
 import { ToastProvider } from "@/lib/contexts/ToastContext";
 import ToastContainer from "@/components/ui/ToastContainer";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
+import InstallBanner from "./components/InstallBanner";
 
 export const metadata: Metadata = {
   title: {
@@ -40,14 +41,11 @@ export default function RootLayout({
         <ToastProvider>
           <ModalProvider>
             <Navigation />
-            
-            {/* Add padding to account for fixed navbar */}
             <div className="pt-16">
               <main>{children}</main>
             </div>
-            
-            {/* Toast notifications */}
             <ToastContainer />
+            <InstallBanner />
           </ModalProvider>
         </ToastProvider>
       </body>

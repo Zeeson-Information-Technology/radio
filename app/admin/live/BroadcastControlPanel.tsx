@@ -167,10 +167,12 @@ export default function BroadcastControlPanel({
   // Memoized audio file selection handler
   const handleAudioFileSelect = useCallback(async (file: AudioFile) => {
     if (isStreaming) {
-      // Already live — inject immediately (or stop current if one is playing)
-      if (audioInjectionActive) {
+      if (audioInjectionActive && currentAudioFile === file.title) {
+        // Clicking the same file that's already playing — stop it
         onAudioStop();
       } else {
+        // Either nothing is playing, or a different file is playing — play this one
+        // playAudioFile handles cleanup of any current audio internally
         onAudioFilePlay(file.id, file.title, file.duration);
       }
     } else {
@@ -179,7 +181,7 @@ export default function BroadcastControlPanel({
         onInjectAndStart(file.id, file.title, file.duration);
       }
     }
-  }, [isStreaming, audioInjectionActive, onAudioStop, onAudioFilePlay, onInjectAndStart]);
+  }, [isStreaming, audioInjectionActive, currentAudioFile, onAudioStop, onAudioFilePlay, onInjectAndStart]);
 
   // Enhanced local preview functionality with full audio player
   const handleLocalPreview = useCallback(async (file: AudioFile) => {
