@@ -51,8 +51,11 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Al-Manhaj Radio';
   const options = {
     body: payload.body || 'A new broadcast has started.',
-    icon: '/apple-icon',
-    badge: '/icon',
+    // Static PNG files — Android requires static URLs for notification icons.
+    // Dynamic routes like /apple-icon cause Android to show a small bubble
+    // instead of a full notification banner.
+    icon: '/notification-icon.png',
+    badge: '/notification-badge.png',
     tag: 'go-live',           // replaces previous notification — no spam
     renotify: true,
     data: { url: payload.url || '/radio' },
