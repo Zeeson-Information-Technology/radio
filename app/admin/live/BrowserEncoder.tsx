@@ -273,47 +273,36 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
   // New audio control handlers
   const handleAudioPause = useCallback(async () => {
-    try {
-      if (audioInjectionSystemRef.current) {
-        audioInjectionSystemRef.current.pausePlayback();
-        
-        // Notify gateway about pause
-        const response = await fetch('/api/admin/broadcast/audio/pause', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        
-        if (response.ok) {
-          setMessage('Audio paused');
-          setIsAudioPaused(true);
-        }
-      }
-    } catch (error) {
-      console.error('Audio pause error:', error);
-      setErrorMessage('Failed to pause audio');
-    }
+    if (!audioInjectionSystemRef.current) return;
+    // Update UI immediately — gain switch is instantaneous in Web Audio
+    audioInjectionSystemRef.current.pausePlayback();
+    setIsAudioPaused(true);
+    setMessage('Audio paused');
+    // Notify gateway in background — non-blocking
+    fetch('/api/admin/broadcast/audio/pause', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {});
   }, []);
 
   const handleAudioResume = useCallback(async () => {
+    if (!audioInjectionSystemRef.current) return;
+    // Update UI immediately before awaiting play()
+    setIsAudioPaused(false);
+    setMessage('Audio resumed');
     try {
-      if (audioInjectionSystemRef.current) {
-        await audioInjectionSystemRef.current.resumePlayback();
-        
-        // Notify gateway about resume
-        const response = await fetch('/api/admin/broadcast/audio/resume', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        
-        if (response.ok) {
-          setMessage('Audio resumed');
-          setIsAudioPaused(false);
-        }
-      }
+      await audioInjectionSystemRef.current.resumePlayback();
     } catch (error) {
+      // If resume fails, revert UI
+      setIsAudioPaused(true);
       console.error('Audio resume error:', error);
-      setErrorMessage('Failed to resume audio');
+      return;
     }
+    // Notify gateway in background — non-blocking
+    fetch('/api/admin/broadcast/audio/resume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {});
   }, []);
 
   const handleAudioSeek = useCallback(async (timeInSeconds: number) => {
