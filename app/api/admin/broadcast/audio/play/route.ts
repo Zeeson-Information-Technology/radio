@@ -24,28 +24,10 @@ export async function POST(request: NextRequest) {
       startedAt: new Date().toISOString()
     };
 
-    // Use request host for self-fetch — works in both dev and production
-    const host = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
-    try {
-      await fetch(`${host}/api/live/notify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.INTERNAL_API_KEY || 'internal'}`
-        },
-        body: JSON.stringify({
-          action: 'broadcast_event',
-          type: 'audio_playback_started',
-          audioFile: audioFileInfo,
-          timestamp: new Date().toISOString(),
-          sessionId: liveState?._id?.toString() || 'local'
-        })
-      });
-    } catch (notifyError) {
-      console.error('Failed to notify listeners:', notifyError);
-    }
-
-    // Notify gateway (best-effort)
+    // Notify gateway — gateway calls /api/live/notify which pushes SSE to listeners.
+    // We do NOT self-fetch /api/live/notify here because on Vercel serverless each
+    // function runs in an isolated process — the SSE connections Set would be empty.
+    // The gateway's notifyListeners() call is the reliable path on production.
     if (liveState) {
       try {
         const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:8080';
@@ -59,7 +41,7 @@ export async function POST(request: NextRequest) {
             timestamp: new Date()
           })
         });
-      } catch { /* not critical */ }
+      } catch { /* gateway not reachable in local dev — not critical */ }
     }
 
     return NextResponse.json({ success: true, message: 'Audio playback started', currentAudioFile: audioFileInfo });
