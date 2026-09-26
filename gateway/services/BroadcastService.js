@@ -1117,12 +1117,14 @@ class BroadcastService {
       return false;
     }
 
-    // Check if broadcast is live
-    if (!this.isStreaming) {
+    // Check if broadcast is live — use currentBroadcast as the authority
+    // since isStreaming can be momentarily false during FFmpeg startup
+    // even after stream_started has been sent to the presenter.
+    if (!this.currentBroadcast) {
       if (ws && ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({
           type: 'error',
-          message: `Cannot ${action}: Broadcast is not live`
+          message: `Cannot ${action}: No active broadcast session`
         }));
       }
       return false;
