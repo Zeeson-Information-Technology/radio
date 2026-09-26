@@ -718,17 +718,14 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
           </div>
         </div>
 
-        {/* Mobile Advertisement - Shown at bottom on mobile only */}
+        {/* Mobile Advertisement - commented out until ad partner confirmed
         <div className="lg:hidden mt-8 bg-gradient-to-r from-slate-100 via-gray-50 to-slate-100 rounded-2xl shadow-lg overflow-hidden border border-gray-200">
-          {/* Advertisement Label */}
           <div className="bg-gray-200 px-4 py-1">
             <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">Advertisement</p>
           </div>
           
-          {/* Mobile-optimized Billboard Content */}
           <div className="p-4">
             <div className="flex flex-col sm:flex-row items-center gap-4">
-              {/* Company Logo */}
               <div className="flex-shrink-0">
                 <div className="w-14 h-14 bg-blue-600 rounded-xl flex items-center justify-center shadow-md">
                   <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -737,7 +734,6 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 </div>
               </div>
 
-              {/* Company Information - Mobile Layout */}
               <div className="flex-grow text-center sm:text-left">
                 <h2 className="text-lg sm:text-xl font-bold mb-1 text-gray-800">
                   Advert Space
@@ -746,7 +742,6 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                   Service Type
                 </p>
                 
-                {/* Contact Information - Mobile Compact */}
                 <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
                   <div className="space-y-1 text-xs sm:text-sm">
                     <div className="flex items-center justify-center sm:justify-start gap-2">
@@ -765,7 +760,6 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
                 </div>
               </div>
 
-              {/* Visual Element - Mobile */}
               <div className="flex-shrink-0 sm:hidden">
                 <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center border border-blue-200">
                   <div className="text-center">
@@ -776,6 +770,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
             </div>
           </div>
         </div>
+        */}
       </div>
     </div>
   );
