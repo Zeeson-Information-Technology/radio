@@ -54,6 +54,24 @@ class BroadcastGateway {
     try {
       // Connect to database
       await this.databaseService.connect();
+
+      // Reset live state on startup — prevents stale isLive/currentAudioFile
+      // persisting across gateway restarts (e.g. server reboot, crash recovery).
+      // Without this, listeners see old broadcast/audio state after restart.
+      try {
+        await this.databaseService.updateLiveState({
+          isLive: false,
+          isMuted: false,
+          title: null,
+          lecturer: null,
+          startedAt: null,
+          mutedAt: null,
+          currentAudioFile: null
+        });
+        console.log('✅ Live state reset on startup');
+      } catch (err) {
+        console.warn('⚠️ Could not reset live state on startup:', err.message);
+      }
       
       // Start audio state manager cache cleanup
       this.audioStateManager.startCacheCleanup();
