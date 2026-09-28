@@ -11,7 +11,7 @@ export default function StatusBanners({ liveData, formatStartTime }: StatusBanne
   if (!liveData.isLive) return null;
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col w-full min-w-0">
       {/* Mute Status Banner */}
       {liveData.isMuted && (
         <div className="w-full mb-4 px-4 py-3 bg-gradient-to-r from-amber-100 to-orange-100 border border-amber-300 rounded-xl">
@@ -33,8 +33,8 @@ export default function StatusBanners({ liveData, formatStartTime }: StatusBanne
 
       {/* Audio Playback Status Banner */}
       {liveData.currentAudioFile && (
-        <div className="w-full mb-4 px-4 py-3 bg-gradient-to-r from-purple-100 to-indigo-100 border border-purple-300 rounded-xl overflow-hidden">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="w-full mb-4 px-4 py-3 bg-gradient-to-r from-purple-100 to-indigo-100 border border-purple-300 rounded-xl overflow-hidden min-w-0">
+          <div className="flex items-center gap-2 w-full min-w-0">
             <svg className="w-5 h-5 text-purple-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
             </svg>
