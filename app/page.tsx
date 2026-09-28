@@ -128,7 +128,7 @@ export default function HomePage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-8 max-w-2xl mx-auto pt-8 border-t border-white/10">
+            <div className="grid grid-cols-3 gap-4 sm:gap-8 max-w-2xl mx-auto pt-8 border-t border-white/10">
               <div>
                 <div className="text-3xl md:text-4xl font-bold text-emerald-300">24/7</div>
                 <div className="text-sm text-emerald-200/70 mt-1">Always On</div>
@@ -157,7 +157,7 @@ export default function HomePage() {
       <section id="features" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-4">
+            <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-slate-900 mb-4">
               Why Choose Al-Manhaj Radio?
             </h2>
             <p className="text-xl text-slate-600 max-w-2xl mx-auto">
@@ -167,7 +167,7 @@ export default function HomePage() {
 
           <div className="grid md:grid-cols-3 gap-8">
             {/* Feature 1 */}
-            <div className="group relative bg-gradient-to-br from-emerald-50 to-teal-50 p-8 rounded-2xl hover:shadow-2xl transition-all duration-300 border border-emerald-100 hover:border-emerald-300 hover:-translate-y-2">
+            <div className="group relative bg-gradient-to-br from-emerald-50 to-teal-50 p-5 sm:p-8 rounded-2xl hover:shadow-2xl transition-all duration-300 border border-emerald-100 hover:border-emerald-300 hover:-translate-y-2">
               <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-emerald-400/10 to-teal-400/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
               <div className="relative">
                 <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-lg">
@@ -183,7 +183,7 @@ export default function HomePage() {
             </div>
 
             {/* Feature 2 */}
-            <div className="group relative bg-gradient-to-br from-amber-50 to-orange-50 p-8 rounded-2xl hover:shadow-2xl transition-all duration-300 border border-amber-100 hover:border-amber-300 hover:-translate-y-2">
+            <div className="group relative bg-gradient-to-br from-amber-50 to-orange-50 p-5 sm:p-8 rounded-2xl hover:shadow-2xl transition-all duration-300 border border-amber-100 hover:border-amber-300 hover:-translate-y-2">
               <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-amber-400/10 to-orange-400/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
               <div className="relative">
                 <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-lg">
@@ -199,7 +199,7 @@ export default function HomePage() {
             </div>
 
             {/* Feature 3 */}
-            <div className="group relative bg-gradient-to-br from-purple-50 to-indigo-50 p-8 rounded-2xl hover:shadow-2xl transition-all duration-300 border border-purple-100 hover:border-purple-300 hover:-translate-y-2">
+            <div className="group relative bg-gradient-to-br from-purple-50 to-indigo-50 p-5 sm:p-8 rounded-2xl hover:shadow-2xl transition-all duration-300 border border-purple-100 hover:border-purple-300 hover:-translate-y-2">
               <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-400/10 to-indigo-400/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
               <div className="relative">
                 <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-lg">
@@ -221,7 +221,7 @@ export default function HomePage() {
       <section className="py-20 bg-gradient-to-br from-slate-50 to-emerald-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-4">
+            <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-slate-900 mb-4">
               Weekly Schedule
             </h2>
             <p className="text-xl text-slate-600 max-w-2xl mx-auto mb-8">
@@ -290,7 +290,7 @@ export default function HomePage() {
         </div>
 
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl md:text-5xl font-bold mb-6">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold mb-6">
             Start Your Spiritual Journey Today
           </h2>
           <p className="text-xl text-emerald-100 mb-10 max-w-2xl mx-auto">
@@ -299,7 +299,7 @@ export default function HomePage() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Link
               href="/radio"
-              className="inline-flex items-center justify-center gap-2 bg-white text-emerald-900 px-10 py-5 rounded-xl hover:bg-emerald-50 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+              className="inline-flex items-center justify-center gap-2 bg-white text-emerald-900 px-6 sm:px-10 py-4 sm:py-5 rounded-xl hover:bg-emerald-50 transition-all duration-300 text-base sm:text-lg font-bold shadow-2xl hover:scale-105"
             >
               <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
@@ -312,7 +312,7 @@ export default function HomePage() {
                   installPrompt.prompt();
                   installPrompt.userChoice.then(() => setInstallPrompt(null));
                 }}
-                className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-10 py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+                className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-6 sm:px-10 py-4 sm:py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-base sm:text-lg font-bold shadow-2xl hover:scale-105"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -322,7 +322,7 @@ export default function HomePage() {
             ) : (
               <Link
                 href="/library"
-                className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-10 py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-lg font-bold shadow-2xl hover:scale-105"
+                className="inline-flex items-center justify-center gap-2 bg-emerald-800 text-white border-2 border-emerald-600 px-6 sm:px-10 py-4 sm:py-5 rounded-xl hover:bg-emerald-700 hover:border-emerald-500 transition-all duration-300 text-base sm:text-lg font-bold shadow-2xl hover:scale-105"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />

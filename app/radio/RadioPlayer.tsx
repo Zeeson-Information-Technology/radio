@@ -573,7 +573,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12">
         {/* Navigation */}
         <Navigation />
 
@@ -591,7 +591,7 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
               />
 
               {/* Status Banners */}
-              <div className="p-6 pt-4">
+              <div className="p-6 pt-4 overflow-hidden">
                 <StatusBanners 
                   liveData={liveData}
                   formatStartTime={formatStartTime}
