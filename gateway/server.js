@@ -116,6 +116,9 @@ class BroadcastGateway {
     this.app.use(createEmergencyRoute(this.broadcastService));
     this.app.use(createConversionRoutes(this.conversionService));
     this.app.use(createBroadcastRoutes(this.broadcastService));
+    // Test route for schedule reminders (dev/testing only)
+    const createReminderTestRoute = require('./routes/reminderTest');
+    this.app.use(createReminderTestRoute(this.scheduleReminderService));
     
     // Set up test stream route with live streaming capability
     const testStreamRoute = require('./routes/testStream');

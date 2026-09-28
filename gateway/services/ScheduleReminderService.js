@@ -142,7 +142,18 @@ class ScheduleReminderService {
     }
   }
 
-  async _tick() {
+  /**
+   * Manually trigger a reminder check — for testing only.
+   * Bypasses both the time-window check and the dedup map so it always fires
+   * for all active schedules regardless of when they are scheduled.
+   */
+  async triggerNow() {
+    console.log('📅 Manual reminder trigger — bypassing time window + dedup map');
+    this.sentToday.clear(); // allow re-send for testing
+    await this._tick(true); // testMode = skip time window
+  }
+
+  async _tick(testMode = false) {
     const now = new Date();
 
     // Fetch all active schedules from MongoDB
@@ -157,7 +168,8 @@ class ScheduleReminderService {
 
       // Window: send when between reminderMinutes and (reminderMinutes - 1) minutes away
       // e.g. with reminderMinutes=15: fires when 14 < minutesUntil <= 15
-      if (minutesUntil > this.reminderMinutes || minutesUntil <= this.reminderMinutes - 1) continue;
+      // In testMode, skip the window check and always fire
+      if (!testMode && (minutesUntil > this.reminderMinutes || minutesUntil <= this.reminderMinutes - 1)) continue;
 
       const key = dedupKey(schedule._id.toString(), now);
       if (this.sentToday.has(key)) continue; // already sent today
