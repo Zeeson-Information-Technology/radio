@@ -1,6 +1,27 @@
 'use client';
 
+import { useState } from 'react';
+
 export default function OfflinePage() {
+  const [checking, setChecking] = useState(false);
+  const [stillOffline, setStillOffline] = useState(false);
+
+  const handleRetry = async () => {
+    setChecking(true);
+    setStillOffline(false);
+
+    try {
+      // Probe the server with a small no-cache request to confirm connectivity
+      await fetch('/', { method: 'HEAD', cache: 'no-store' });
+      // If it resolves, we're back online — go to the home page
+      window.location.href = '/';
+    } catch {
+      // Still offline
+      setStillOffline(true);
+      setChecking(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/30 flex items-center justify-center px-4">
       <div className="text-center max-w-md">
@@ -21,12 +42,30 @@ export default function OfflinePage() {
           Check your internet connection and try again.
         </p>
 
+        {/* Still offline feedback */}
+        {stillOffline && (
+          <p className="text-red-500 text-sm mb-4">
+            Still no connection. Please check your internet and try again.
+          </p>
+        )}
+
         {/* Retry button */}
         <button
-          onClick={() => window.location.reload()}
-          className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors"
+          onClick={handleRetry}
+          disabled={checking}
+          className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
         >
-          Try Again
+          {checking ? (
+            <>
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Checking...
+            </>
+          ) : (
+            'Try Again'
+          )}
         </button>
       </div>
     </div>
