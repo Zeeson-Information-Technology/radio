@@ -27,6 +27,7 @@ const DatabaseService = require('./services/DatabaseService');
 const BroadcastService = require('./services/BroadcastService');
 const AudioConversionService = require('./services/AudioConversionService');
 const AudioStateManager = require('./services/AudioStateManager');
+const ScheduleReminderService = require('./services/ScheduleReminderService');
 const WebSocketHandler = require('./websocket/WebSocketHandler');
 
 // Import routes
@@ -46,6 +47,7 @@ class BroadcastGateway {
     this.audioStateManager = new AudioStateManager(this.databaseService);
     this.broadcastService = new BroadcastService(this.databaseService, this.audioStateManager);
     this.conversionService = new AudioConversionService(this.databaseService);
+    this.scheduleReminderService = new ScheduleReminderService();
     
     this.init();
   }
@@ -75,6 +77,9 @@ class BroadcastGateway {
       
       // Start audio state manager cache cleanup
       this.audioStateManager.startCacheCleanup();
+      
+      // Start schedule reminder cron — sends push notifications before programmes
+      this.scheduleReminderService.start();
       
       // Setup Express app
       this.setupExpressApp();
@@ -151,6 +156,10 @@ class BroadcastGateway {
       // Dispose of audio state manager
       if (this.audioStateManager) {
         this.audioStateManager.dispose();
+      }
+      
+      if (this.scheduleReminderService) {
+        this.scheduleReminderService.stop();
       }
       
       if (this.server) {

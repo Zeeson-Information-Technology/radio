@@ -500,11 +500,12 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
     const requestWakeLock = async () => {
       if (!('wakeLock' in navigator)) return; // not supported
       try {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        const sentinel = await (navigator as any).wakeLock.request('screen');
+        wakeLockRef.current = sentinel;
         console.log('🔆 Screen wake lock acquired — screen will stay on');
 
         // Re-acquire if the lock is released by the OS (e.g. tab backgrounded then foregrounded)
-        wakeLockRef.current.addEventListener('release', () => {
+        sentinel.addEventListener('release', () => {
           console.log('🔆 Wake lock released by OS');
           wakeLockRef.current = null;
         });
