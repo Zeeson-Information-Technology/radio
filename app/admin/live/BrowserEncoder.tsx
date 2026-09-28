@@ -372,6 +372,8 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const pendingInjectRef = useRef<{ fileId: string; fileName: string; duration: number } | null>(null);
   // Last played audio file — used to offer Replay in the post-audio modal
   const lastPlayedFileRef = useRef<{ fileId: string; fileName: string; duration: number } | null>(null);
+  // Wake Lock — keeps screen on during broadcast on Android/Chrome
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Check browser support and existing session on mount
   useEffect(() => {
@@ -490,6 +492,58 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       cleanup();
     };
   }, []);
+
+  // ── Screen Wake Lock ─────────────────────────────────────────────────────
+  // Prevents the phone screen from locking during a live broadcast.
+  // Works on Android Chrome and PWA. Silently ignored on iOS Safari.
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      if (!('wakeLock' in navigator)) return; // not supported
+      try {
+        const sentinel = await (navigator as any).wakeLock.request('screen');
+        wakeLockRef.current = sentinel;
+        console.log('🔆 Screen wake lock acquired — screen will stay on');
+
+        // Re-acquire if the lock is released by the OS (e.g. tab backgrounded then foregrounded)
+        sentinel.addEventListener('release', () => {
+          console.log('🔆 Wake lock released by OS');
+          wakeLockRef.current = null;
+        });
+      } catch (err) {
+        // Wake lock request can fail if the page is not visible — not critical
+        console.warn('⚠️ Wake lock request failed (non-critical):', err);
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        try {
+          await wakeLockRef.current.release();
+          wakeLockRef.current = null;
+          console.log('🔆 Screen wake lock released');
+        } catch { /* ignore */ }
+      }
+    };
+
+    // Re-acquire wake lock when tab becomes visible again (OS releases it on hide)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && connectionState === 'streaming') {
+        requestWakeLock();
+      }
+    };
+
+    if (connectionState === 'streaming') {
+      requestWakeLock();
+      document.addEventListener('visibilitychange', handleVisibility);
+    } else {
+      releaseWakeLock();
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      releaseWakeLock();
+    };
+  }, [connectionState]);
 
   // Warn admin before closing tab/window if broadcast or audio injection is active
   useEffect(() => {
@@ -1788,6 +1842,16 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
       </div>
 
     </div>
+
+    {/* ── Mobile stay-on-screen reminder ──────────────────────────────────── */}
+    {connectionState === 'streaming' && (
+      <div className="mt-4 flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+        <svg className="w-4 h-4 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>Keep this app open — switching to another app will stop your broadcast.</span>
+      </div>
+    )}
 
     {/* ── Presenter Status Bar ─────────────────────────────────────────────── */}
     {connectionState === 'streaming' && (
