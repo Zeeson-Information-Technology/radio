@@ -142,7 +142,7 @@ export default function ClientScheduleDisplay() {
     <div className="space-y-6">
       {/* Next Program Card */}
       {nextProgram && (
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-6 border border-emerald-200 shadow-lg">
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-6 border border-emerald-200 shadow-lg overflow-hidden min-w-0">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -152,9 +152,9 @@ export default function ClientScheduleDisplay() {
             <h3 className="text-xl font-bold text-emerald-900">Next Program</h3>
           </div>
           
-          <div className="space-y-2">
-            <h4 className="text-lg font-semibold text-emerald-800">{nextProgram.topic}</h4>
-            <p className="text-emerald-700">with {nextProgram.lecturer}</p>
+          <div className="space-y-2 min-w-0">
+            <h4 className="text-lg font-semibold text-emerald-800 break-words line-clamp-2">{nextProgram.topic}</h4>
+            <p className="text-emerald-700 truncate">with {nextProgram.lecturer}</p>
             <div className="flex items-center gap-4 text-sm text-emerald-600">
               <span className="flex items-center gap-1">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -258,9 +258,9 @@ export default function ClientScheduleDisplay() {
                                 .sort((a, b) => a.startTime.localeCompare(b.startTime))
                                 .map((item) => (
                                   <div key={item._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-                                    <div className="flex-1">
-                                      <h5 className="font-medium text-slate-800">{item.topic}</h5>
-                                      <p className="text-sm text-slate-600">with {item.lecturer}</p>
+                                    <div className="flex-1 min-w-0">
+                                      <h5 className="font-medium text-slate-800 truncate">{item.topic}</h5>
+                                      <p className="text-sm text-slate-600 truncate">with {item.lecturer}</p>
                                     </div>
                                     
                                     <div className="text-right">
