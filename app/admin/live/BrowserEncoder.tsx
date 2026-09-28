@@ -54,8 +54,14 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
   const [isFirstAttempt, setIsFirstAttempt] = useState(true);
   const [noiseSuppressionEnabled, setNoiseSuppressionEnabled] = useState(false);
   const [autoStopOnComplete, setAutoStopOnComplete] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const autoStopOnCompleteRef = useRef(false);
   useEffect(() => { autoStopOnCompleteRef.current = autoStopOnComplete; }, [autoStopOnComplete]);
+
+  // Detect mobile/touch device after mount (navigator not available during SSR)
+  useEffect(() => {
+    setIsMobileDevice(navigator.maxTouchPoints > 0);
+  }, []);
 
   // Performance optimization: Debounce audio level updates
   const debouncedSetAudioLevel = useCallback(
@@ -1740,11 +1746,11 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
           {/* Success Message - Unified Theme */}
           {message && (
             <div className="mb-8 p-6 bg-gradient-to-r from-emerald-50 to-emerald-100 border-2 border-emerald-200 rounded-2xl shadow-lg">
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 min-w-0">
                 <svg className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-emerald-800 font-medium">{message.replace('Browser streaming', 'Streaming')}</p>
+                <p className="text-emerald-800 font-medium break-words min-w-0 flex-1">{message.replace('Browser streaming', 'Streaming')}</p>
               </div>
             </div>
           )}
@@ -1843,13 +1849,17 @@ export default function BrowserEncoder({ onStreamStart, onStreamStop, onError, t
 
     </div>
 
-    {/* ── Mobile stay-on-screen reminder ──────────────────────────────────── */}
+    {/* ── Broadcast reminder — message differs by device ──────────────────── */}
     {connectionState === 'streaming' && (
       <div className="mt-4 flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
         <svg className="w-4 h-4 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <span>Keep this app open — switching to another app will stop your broadcast.</span>
+        {isMobileDevice ? (
+          <span>Keep this app open — switching to another app will stop your broadcast.</span>
+        ) : (
+          <span>Keep this page open — switching to another page will stop your broadcast.</span>
+        )}
       </div>
     )}
 

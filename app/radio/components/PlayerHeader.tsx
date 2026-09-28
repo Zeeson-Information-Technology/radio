@@ -16,10 +16,10 @@ export default function PlayerHeader({
   formatStartTime 
 }: PlayerHeaderProps) {
   return (
-    <div className={`px-5 py-5 sm:px-8 sm:py-8 ${liveData.isLive ? 'bg-gradient-to-r from-red-600 to-rose-600' : 'bg-gradient-to-r from-emerald-600 to-emerald-700'}`}>
+    <div className={`px-5 py-5 sm:px-8 sm:py-8 min-w-0 w-full ${liveData.isLive ? 'bg-gradient-to-r from-red-600 to-rose-600' : 'bg-gradient-to-r from-emerald-600 to-emerald-700'}`}>
       {liveData.isLive ? (
         <>
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-3 min-w-0">
             <div className="flex items-center gap-2 backdrop-blur-sm rounded-full px-3 py-1.5 bg-white/20">
               <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
@@ -45,11 +45,11 @@ export default function PlayerHeader({
             </div>
           </div>
 
-          <h1 className="text-xl sm:text-3xl font-bold text-white mb-1 leading-tight">
+          <h1 className="text-xl sm:text-3xl font-bold text-white mb-1 leading-tight break-words line-clamp-2 min-w-0">
             {liveData.title || "Live Lecture"}
           </h1>
           {liveData.lecturer && (
-            <p className="text-white/90 text-sm sm:text-base mb-1">
+            <p className="text-white/90 text-sm sm:text-base mb-1 truncate min-w-0">
               with {liveData.lecturer}
             </p>
           )}
