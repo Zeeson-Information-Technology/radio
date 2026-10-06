@@ -111,6 +111,32 @@ export default function RadioPlayer({ initialData }: RadioPlayerProps) {
     }
   };
 
+  // ── Active polling + visibility recovery ──────────────────────────────────
+  // Vercel serverless is stateless — SSE events only reach one instance.
+  // Polling every 10s guarantees listeners see broadcast start/stop within 10s
+  // even if the SSE event was missed. Visibility handler catches returning users.
+  useEffect(() => {
+    // Poll every 10 seconds while page is visible
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        checkLiveState();
+      }
+    }, 10000);
+
+    // Immediately re-check when user returns to the tab (tab switch, phone unlock)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkLiveState();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
   // Real-time updates via Server-Sent Events
   useEffect(() => {
     let eventSource: EventSource | null = null;

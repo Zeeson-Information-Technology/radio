@@ -186,7 +186,7 @@ class BroadcastService {
         '-reservoir', '0',
         '-flush_packets', '1',
         '-chunk_duration', '500',
-        '-af', 'highpass=f=80,volume=1.2',
+        '-af', 'aresample=resampler=soxr,highpass=f=80',
         
         // Output to stdout for live streaming
         'pipe:1'
@@ -222,7 +222,7 @@ class BroadcastService {
         '-id3v2_version', '0',
         '-reservoir', '0',
         '-flush_packets', '1',
-        '-af', 'highpass=f=80,volume=1.2',
+        '-af', 'aresample=resampler=soxr,highpass=f=80',
 
         // Icecast metadata
         '-ice_name', 'Al-Manhaj Radio',
