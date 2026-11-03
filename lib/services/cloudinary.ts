@@ -90,7 +90,7 @@ export class CloudinaryService {
       const stream = cloudinary.uploader.upload_stream(
         {
           public_id: publicId,
-          resource_type: 'raw', // 'raw' for audio files
+          resource_type: 'video', // 'video' gives 100MB limit vs 10MB for 'raw'
           media_metadata: true,
         },
         (error, result) => {
@@ -125,7 +125,7 @@ export class CloudinaryService {
 
     try {
       const result = await cloudinary.uploader.destroy(publicId, {
-        resource_type: 'raw',
+        resource_type: 'video',
       });
 
       if (result.result === 'ok') {
@@ -144,7 +144,7 @@ export class CloudinaryService {
    */
   getDownloadUrl(publicId: string): string {
     return cloudinary.url(publicId, {
-      resource_type: 'raw',
+      resource_type: 'video',
       type: 'upload',
     });
   }
@@ -154,7 +154,7 @@ export class CloudinaryService {
    */
   getSecureUrl(publicId: string): string {
     return cloudinary.url(publicId, {
-      resource_type: 'raw',
+      resource_type: 'video',
       type: 'upload',
       secure: true,
     });

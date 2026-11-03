@@ -109,7 +109,9 @@ export async function GET(request: NextRequest) {
           originalFileName: 1,
           conversionStatus: 1,
           playbackFormat: 1,
-          originalFormat: 1
+          originalFormat: 1,
+          cloudinaryUrl: 1,
+          preferredStorage: 1
         })
         .sort(sort)
         .skip(skip)
@@ -133,8 +135,13 @@ export async function GET(request: NextRequest) {
 
     // Process recordings to ensure they have playable URLs
     const processedRecordings = recordings.map(recording => {
+      // Check if Cloudinary is preferred
+      const useCloudinary = recording.preferredStorage === 'cloudinary' && recording.cloudinaryUrl;
+      
       // Determine the best URL for playback
-      const playableUrl = recording.playbackUrl || recording.cdnUrl || recording.storageUrl;
+      const playableUrl = useCloudinary
+        ? recording.cloudinaryUrl
+        : recording.playbackUrl || recording.cdnUrl || recording.storageUrl;
       
       return {
         ...recording,
