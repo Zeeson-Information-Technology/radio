@@ -45,3 +45,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local gateway/tunnel logs
+*.log
+gateway/gateway-*.log
+tunnel-*.log
