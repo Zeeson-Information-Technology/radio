@@ -238,41 +238,24 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!selectedFile) {
-      setError("Please select an audio file");
-      return;
-    }
 
-    if (!title.trim()) {
-      setError("Please enter a title");
-      return;
-    }
-
-    if (!lecturerName.trim()) {
-      setError("Please enter the lecturer/speaker name");
-      return;
-    }
-
-
+    if (!selectedFile) { setError("Please select an audio file"); return; }
+    if (!title.trim()) { setError("Please enter a title"); return; }
+    if (!lecturerName.trim()) { setError("Please enter the lecturer/speaker name"); return; }
 
     setUploadStatus("uploading");
     setError("");
     setMessage("");
 
     try {
-      // Step 1: Get presigned URL from our API (tiny request â€” just metadata)
+      // Step 1: Get Cloudinary signed upload params
       setCurrentStage({ name: "preparing", progress: 5, description: "Preparing upload..." });
 
       const contentType = selectedFile.type || "audio/mpeg";
       const urlResponse = await fetch("/api/audio/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: selectedFile.name,
-          contentType,
-          fileSize: selectedFile.size,
-        }),
+        body: JSON.stringify({ fileName: selectedFile.name, contentType, fileSize: selectedFile.size }),
       });
 
       if (!urlResponse.ok) {
@@ -282,17 +265,20 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
 
       const { uploadUrl, uploadParams, storageKey } = await urlResponse.json();
 
-      // Step 2: Upload file directly to Cloudinary (bypasses Vercel entirely)
+      // Step 2: Upload file directly to Cloudinary
       setCurrentStage({ name: "uploading", progress: 10, description: "Uploading to Cloudinary..." });
 
       let cloudinaryUrl = "";
       let cloudinaryPublicId = "";
 
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 80); // maps to 10â€“90% range
+            const pct = Math.round((e.loaded / e.total) * 80);
             setUploadProgress({ loaded: e.loaded, total: e.total, percentage: Math.round((e.loaded / e.total) * 100) });
-            setCurrentStage({ name: "uploading", progress: 10 + pct, description: "Uploading to storage..." });
+            setCurrentStage({ name: "uploading", progress: 10 + pct, description: "Uploading to Cloudinary..." });
           }
         });
 
@@ -306,7 +292,9 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
             reject(new Error(`Cloudinary upload failed: ${xhr.status} ${xhr.statusText}`));
           }
         });
-        // POST to Cloudinary upload API
+
+        xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+
         const formData = new FormData();
         formData.append("file", selectedFile);
         formData.append("public_id", uploadParams.public_id);
@@ -316,9 +304,14 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
 
         xhr.open("POST", uploadUrl);
         xhr.send(formData);
+      });
 
+      // Step 3: Save metadata to DB
+      setCurrentStage({ name: "processing", progress: 92, description: "Saving to database..." });
 
-
+      const metaResponse = await fetch("/api/audio/complete-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           storageKey,
           storageUrl: cloudinaryUrl,
@@ -337,7 +330,6 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
           year: year.trim() || undefined,
           visibility,
           broadcastReady,
-          preferredStorage,
           sharedWith: visibility === 'shared' && selectedPresenters.length > 0
             ? JSON.stringify(selectedPresenters)
             : undefined,
@@ -351,18 +343,14 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
         setTimeout(() => {
           setUploadStatus("success");
           setMessage(result.needsConversion
-            ? "Audio uploaded successfully! Converting to MP3 for web playback. Refresh in a few moments."
+            ? "Audio uploaded! Converting to MP3 for playback..."
             : "Audio uploaded successfully!");
-          setTimeout(() => {
-            resetForm();
-            onUploadSuccess();
-          }, result.needsConversion ? 4000 : 2000);
+          setTimeout(() => { resetForm(); onUploadSuccess(); }, result.needsConversion ? 4000 : 2000);
         }, 500);
       } else {
         setUploadStatus("error");
         setError(result.message || "Upload failed");
       }
-
     } catch (error) {
       console.error("Upload error:", error);
       setUploadStatus("error");
