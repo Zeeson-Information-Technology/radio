@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { SerializedAdmin } from "@/lib/types/admin";
@@ -34,7 +34,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
     return (
       <div className="max-w-4xl mx-auto">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center">
-          <div className="text-6xl mb-4">🔒</div>
+          <div className="text-6xl mb-4">ðŸ”’</div>
           <h3 className="text-xl font-semibold text-amber-800 mb-2">
             Audio Upload Restricted
           </h3>
@@ -67,8 +67,8 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
   const [tags, setTags] = useState("");
   const [year, setYear] = useState("");
   
-  // Storage is always DigitalOcean Spaces
-  const preferredStorage = "digitalocean" as const;
+  // Storage is Cloudinary
+  const preferredStorage = "cloudinary" as const;
   
   // New access control fields (Requirements 7.1, 7.2, 8.1, 8.2)
   const [visibility, setVisibility] = useState<'private' | 'shared' | 'public'>(
@@ -261,7 +261,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
     setMessage("");
 
     try {
-      // Step 1: Get presigned URL from our API (tiny request — just metadata)
+      // Step 1: Get presigned URL from our API (tiny request â€” just metadata)
       setCurrentStage({ name: "preparing", progress: 5, description: "Preparing upload..." });
 
       const contentType = selectedFile.type || "audio/mpeg";
@@ -280,17 +280,17 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
         throw new Error(err.message || "Failed to get upload URL");
       }
 
-      const { presignedUrl, storageKey, storageUrl, cdnUrl } = await urlResponse.json();
+      const { uploadUrl, uploadParams, storageKey } = await urlResponse.json();
 
-      // Step 2: Upload file directly to DigitalOcean Spaces (bypasses Vercel entirely)
-      setCurrentStage({ name: "uploading", progress: 10, description: "Uploading to storage..." });
+      // Step 2: Upload file directly to Cloudinary (bypasses Vercel entirely)
+      setCurrentStage({ name: "uploading", progress: 10, description: "Uploading to Cloudinary..." });
 
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
+      let cloudinaryUrl = "";
+      let cloudinaryPublicId = "";
 
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 80); // maps to 10–90% range
+            const pct = Math.round((e.loaded / e.total) * 80); // maps to 10â€“90% range
             setUploadProgress({ loaded: e.loaded, total: e.total, percentage: Math.round((e.loaded / e.total) * 100) });
             setCurrentStage({ name: "uploading", progress: 10 + pct, description: "Uploading to storage..." });
           }
@@ -298,29 +298,34 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
 
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
+            const response = JSON.parse(xhr.responseText);
+            cloudinaryUrl = response.secure_url;
+            cloudinaryPublicId = response.public_id;
             resolve();
           } else {
-            reject(new Error(`Storage upload failed: ${xhr.status} ${xhr.statusText}`));
+            reject(new Error(`Cloudinary upload failed: ${xhr.status} ${xhr.statusText}`));
           }
         });
+        // POST to Cloudinary upload API
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("public_id", uploadParams.public_id);
+        formData.append("timestamp", uploadParams.timestamp);
+        formData.append("api_key", uploadParams.api_key);
+        formData.append("signature", uploadParams.signature);
 
-        xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+        xhr.open("POST", uploadUrl);
+        xhr.send(formData);
 
-        // PUT directly to DigitalOcean Spaces — no Vercel involved
-        xhr.open("PUT", presignedUrl);
-        xhr.setRequestHeader("Content-Type", contentType);
-        xhr.setRequestHeader("x-amz-acl", "public-read");
-        xhr.send(selectedFile);
-      });
 
-      // Step 3: Save metadata to DB via our API (tiny JSON request — well under 4.5MB)
-      setCurrentStage({ name: "processing", progress: 92, description: "Saving to database..." });
 
-      const metaResponse = await fetch("/api/audio/complete-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          storageKey, storageUrl, cdnUrl,
+          storageKey,
+          storageUrl: cloudinaryUrl,
+          cdnUrl: cloudinaryUrl,
+          cloudinaryUrl,
+          cloudinaryPublicId,
+          preferredStorage: "cloudinary",
           fileSize: selectedFile.size,
           fileName: selectedFile.name,
           contentType,
@@ -378,7 +383,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* File Upload Section */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">📁 Select Audio File</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">ðŸ“ Select Audio File</h3>
           
           {!selectedFile ? (
             <div
@@ -397,7 +402,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
               <div className={`text-6xl mb-4 transition-all duration-200 ${
                 isDragOver ? 'scale-110' : ''
               }`}>
-                {isDragOver ? '📥' : '🎵'}
+                {isDragOver ? 'ðŸ“¥' : 'ðŸŽµ'}
               </div>
               <p className={`text-lg font-medium mb-2 transition-colors duration-200 ${
                 isDragOver ? 'text-emerald-700' : 'text-slate-700'
@@ -424,7 +429,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center text-white flex-shrink-0">
-                    🎵
+                    ðŸŽµ
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-800 break-words" title={selectedFile.name}>
@@ -442,7 +447,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                   className="text-red-600 hover:text-red-700 p-2 flex-shrink-0"
                   title="Remove file"
                 >
-                  ✕
+                  âœ•
                 </button>
               </div>
             </div>
@@ -452,7 +457,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
         {/* Metadata Section */}
         {selectedFile && (
           <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">📝 Audio Information</h3>
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">ðŸ“ Audio Information</h3>
             
             <div className="grid md:grid-cols-2 gap-6">
               {/* Title */}
@@ -495,12 +500,12 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   required
                 >
-                  <option value="lecture">📚 Lecture</option>
-                  <option value="qa">❓ Question & Answer</option>
-                  <option value="quran">📖 Quran Recitation</option>
-                  <option value="hadith">📜 Hadith</option>
-                  <option value="tafsir">📝 Tafsir</option>
-                  <option value="adhkar">🤲 Adhkar</option>
+                  <option value="lecture">ðŸ“š Lecture</option>
+                  <option value="qa">â“ Question & Answer</option>
+                  <option value="quran">ðŸ“– Quran Recitation</option>
+                  <option value="hadith">ðŸ“œ Hadith</option>
+                  <option value="tafsir">ðŸ“ Tafsir</option>
+                  <option value="adhkar">ðŸ¤² Adhkar</option>
                 </select>
               </div>
 
@@ -572,7 +577,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                         className="text-emerald-600 focus:ring-emerald-500"
                       />
                       <div>
-                        <div className="font-medium text-slate-800">🔒 Private</div>
+                        <div className="font-medium text-slate-800">ðŸ”’ Private</div>
                         <div className="text-sm text-slate-600">Only you can access this audio</div>
                       </div>
                     </label>
@@ -587,7 +592,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                         className="text-emerald-600 focus:ring-emerald-500"
                       />
                       <div>
-                        <div className="font-medium text-slate-800">🤝 Shared</div>
+                        <div className="font-medium text-slate-800">ðŸ¤ Shared</div>
                         <div className="text-sm text-slate-600">Share with specific presenters</div>
                       </div>
                     </label>
@@ -602,7 +607,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                         className="text-emerald-600 focus:ring-emerald-500"
                       />
                       <div>
-                        <div className="font-medium text-slate-800">🌍 Public</div>
+                        <div className="font-medium text-slate-800">ðŸŒ Public</div>
                         <div className="text-sm text-slate-600">Available to all presenters</div>
                       </div>
                     </label>
@@ -672,7 +677,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                       />
                       <div>
                         <div className="font-medium text-amber-800">
-                          📡 Broadcast Ready
+                          ðŸ“¡ Broadcast Ready
                         </div>
                         <div className="text-sm text-amber-700">
                           Mark this audio as suitable for live broadcast injection
@@ -691,7 +696,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
           <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-2xl border border-slate-200 max-w-sm sm:max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
               <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
-                <h3 className="text-xl font-semibold text-slate-800">⬆️ Uploading Audio</h3>
+                <h3 className="text-xl font-semibold text-slate-800">â¬†ï¸ Uploading Audio</h3>
                 
                 {/* Circular Progress */}
                 <CircularProgress 
@@ -712,7 +717,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
                   {uploadProgress.total > 0 && (
                     <div className="flex items-center justify-center gap-4 text-xs text-slate-500">
                       <span>{formatFileSize(uploadProgress.loaded)}</span>
-                      <span>•</span>
+                      <span>â€¢</span>
                       <span>{formatFileSize(uploadProgress.total)}</span>
                     </div>
                   )}
@@ -742,7 +747,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
             <div className="flex items-center gap-2 text-red-800">
-              <span>❌</span>
+              <span>âŒ</span>
               <span className="font-medium">Error</span>
             </div>
             <p className="text-red-700 mt-1">{error}</p>
@@ -752,7 +757,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
         {message && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
             <div className="flex items-center gap-2 text-emerald-800">
-              <span>✅</span>
+              <span>âœ…</span>
               <span className="font-medium">Success</span>
             </div>
             <p className="text-emerald-700 mt-1">{message}</p>

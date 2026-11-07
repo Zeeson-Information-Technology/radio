@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/server-auth";
 import { connectDB } from "@/lib/db";
 import AudioRecording from "@/lib/models/AudioRecording";
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
       storageKey, storageUrl, cdnUrl, fileSize, fileName, contentType,
       title, description, lecturerName, type, tags, year,
       visibility: visibilityInput, sharedWith, broadcastReady, preferredStorage,
+      cloudinaryUrl: cloudinaryUrlInput, cloudinaryPublicId: cloudinaryPublicIdInput,
     } = body;
 
     if (!storageKey || !storageUrl || !title || !fileName) {
