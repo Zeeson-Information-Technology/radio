@@ -32,7 +32,7 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
     return (
       <div className="max-w-4xl mx-auto">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center">
-          <div className="text-6xl mb-4">ðŸ”’</div>
+          <div className="text-6xl mb-4">🔒</div>
           <h3 className="text-xl font-semibold text-amber-800 mb-2">Batch Upload Restricted</h3>
           <p className="text-amber-700">Only administrators can upload audio files.</p>
         </div>
@@ -248,7 +248,7 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
               : "border-slate-300 hover:border-emerald-400 bg-white"
           }`}
         >
-          <div className="text-5xl mb-3">{isDragOver ? "ðŸ“¥" : "ðŸŽµ"}</div>
+          <div className="text-5xl mb-3">{isDragOver ? "📥" : "🎵"}</div>
           <h3 className="text-lg font-semibold text-slate-800 mb-1">
             Drop multiple audio files here
           </h3>
@@ -263,7 +263,7 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
             </button>
           </p>
           <p className="text-xs text-slate-500">
-            Supported: {supportedExtensions.join(", ")} â€¢ Max {maxFileSize / (1024 * 1024)}MB each
+            Supported: {supportedExtensions.join(", ")} • Max {maxFileSize / (1024 * 1024)}MB each
           </p>
           <input
             ref={fileInputRef}
@@ -291,7 +291,7 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-800 mb-2">
-                ðŸ“‹ {files.length} file{files.length !== 1 ? "s" : ""} selected
+                📋 {files.length} file{files.length !== 1 ? "s" : ""} selected
               </h3>
               <div className="flex gap-4 text-sm">
                 {pendingCount > 0 && (
@@ -301,12 +301,12 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
                 )}
                 {uploadingCount > 0 && (
                   <span className="text-blue-600">
-                    â¬†ï¸ {uploadingCount} uploading
+                    ⬆️ {uploadingCount} uploading
                   </span>
                 )}
                 {successCount > 0 && (
                   <span className="text-emerald-600">
-                    âœ… {successCount} success
+                    ✅ {successCount} success
                   </span>
                 )}
                 {errorCount > 0 && (
@@ -329,12 +329,13 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span className="text-lg flex-shrink-0">
                           {batchFile.status === "success"
-                            ? "âœ…"
+                            ? "✅"
                             : batchFile.status === "error"
-                            ? "âŒ"
+                            ? "❌"
                             : batchFile.status === "uploading"
-                            ? "â¬†ï¸"
-                            : "ðŸ“"}
+                            ? "⬆️"
+                            : "📄"
+                          }
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-slate-800 truncate text-sm">
