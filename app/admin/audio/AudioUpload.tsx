@@ -745,7 +745,7 @@ export default function AudioUpload({ admin, onUploadSuccess }: AudioUploadProps
         {message && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
             <div className="flex items-center gap-2 text-emerald-800">
-              <span>âœ…</span>
+              <span>✅</span>
               <span className="font-medium">Success</span>
             </div>
             <p className="text-emerald-700 mt-1">{message}</p>
