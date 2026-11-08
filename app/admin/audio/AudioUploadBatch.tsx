@@ -112,7 +112,6 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
     try {
       updateFile(batchFile.id, { status: "uploading", progress: 0 });
 
-      // Step 1: Get presigned URL
       const contentType = batchFile.file.type || "audio/mpeg";
       const urlRes = await fetch("/api/audio/upload-url", {
         method: "POST",
@@ -132,7 +131,9 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
 
       const { uploadUrl, uploadParams, storageKey } = await urlRes.json();
 
-      // Step 2: PUT directly to DigitalOcean Spaces
+      let cloudinaryUrl = "";
+      let cloudinaryPublicId = "";
+
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
 
@@ -145,15 +146,18 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
 
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
+            const response = JSON.parse(xhr.responseText);
+            cloudinaryUrl = response.secure_url;
+            cloudinaryPublicId = response.public_id;
             resolve();
           } else {
-            reject(new Error(`Storage upload failed: ${xhr.status}`));
+            reject(new Error("Cloudinary upload failed: " + xhr.status));
           }
         });
 
         xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
 
-                const formData = new FormData();
+        const formData = new FormData();
         formData.append("file", batchFile.file);
         formData.append("public_id", uploadParams.public_id);
         formData.append("timestamp", uploadParams.timestamp);
@@ -165,12 +169,16 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
 
       updateFile(batchFile.id, { progress: 95 });
 
-      // Step 3: Save metadata
       const metaRes = await fetch("/api/audio/complete-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          storageKey, storageUrl, cdnUrl,
+          storageKey,
+          storageUrl: cloudinaryUrl,
+          cdnUrl: cloudinaryUrl,
+          cloudinaryUrl,
+          cloudinaryPublicId,
+          preferredStorage: "cloudinary",
           fileSize: batchFile.file.size,
           fileName: batchFile.file.name,
           contentType,
@@ -182,7 +190,6 @@ export default function AudioUploadBatch({ admin, onUploadSuccess }: AudioUpload
           year: batchFile.year.trim() || undefined,
           visibility: "public",
           broadcastReady: false,
-          preferredStorage: "digitalocean",
         }),
       });
 
